@@ -73,7 +73,7 @@ function render() {
       ev.preventDefault();
       if (!dragPayload) return;
       const target = ev.target.dataset;
-      if (dragPayload.day !== target.day || String(dragPayload.slot) !== target.slot || dragPayload.queue === target.queue) return;
+      if (dragPayload.day !== target.day || dragPayload.slot !== Number(target.slot) || dragPayload.queue === target.queue) return;
       try {
         await swap(dragPayload.day, dragPayload.slot, dragPayload.queue, target.queue);
       } catch (e) {
