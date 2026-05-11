@@ -187,22 +187,35 @@ def import_csv():
         text = f.read().decode("utf-8-sig")
     except UnicodeDecodeError:
         return jsonify({"error": "File is not valid UTF-8. Please save as UTF-8 and try again."}), 400
-    reader = csv.DictReader(io.StringIO(text))
+    extra_columns_key = "__extra_columns__"
+    reader = csv.DictReader(io.StringIO(text), restkey=extra_columns_key)
 
     # Normalise header names: strip whitespace and lowercase
     if reader.fieldnames is None:
         return jsonify({"error": "Empty CSV"}), 400
 
     expected = {"userid", "username", "account", "hours", "role"}
-    actual = {h.strip().lower() for h in reader.fieldnames}
+    actual = {h.strip().lower() for h in reader.fieldnames if h is not None}
     missing = expected - actual
     if missing:
         return jsonify({"error": f"Missing CSV columns: {', '.join(sorted(missing))}"}), 400
 
     people_map: dict[str, dict] = {}
     all_slots = list(range(24))
-    for row in reader:
-        norm = {k.strip().lower(): (v.strip() if v else "") for k, v in row.items()}
+    for row_num, row in enumerate(reader, start=2):
+        if row.get(extra_columns_key):
+            return jsonify(
+                {
+                    "error": (
+                        f"Malformed CSV on row {row_num}: found extra columns beyond the header row."
+                    )
+                }
+            ), 400
+        norm = {
+            k.strip().lower(): (v.strip() if v else "")
+            for k, v in row.items()
+            if k is not None and k != extra_columns_key
+        }
         pid = norm.get("userid", "").strip()
         if not pid:
             continue
