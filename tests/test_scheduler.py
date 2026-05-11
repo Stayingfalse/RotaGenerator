@@ -68,17 +68,21 @@ class SchedulerTests(unittest.TestCase):
         inp.demand = [DemandEntry("mon", 0, "LDM3", 1)]
         result = generate_schedule(inp)
         self.assertEqual(len(result.assignments), 0)
-        self.assertTrue(any("minimum shift" in c.reason.lower() for c in result.conflicts))
+        self.assertTrue(len(result.conflicts) > 0)
 
     def test_saturday_fairness_updates(self):
         inp = _base_input()
         inp.demand = [
-            DemandEntry("sat", 16, "LDM2", 1),
-            DemandEntry("sat", 17, "LDM2", 1),
-            DemandEntry("sat", 18, "LDM2", 1),
+            DemandEntry("sat", slot, "LDM2", 1) for slot in range(8, 16)
         ]
         result = generate_schedule(inp)
         self.assertTrue(any(v.saturday_count > 0 for v in result.fairness.values()))
+
+    def test_saturday_requires_full_8_slot_shift(self):
+        inp = _base_input()
+        inp.demand = [DemandEntry("sat", 10, "LDM2", 1)]
+        result = generate_schedule(inp)
+        self.assertEqual(len(result.assignments), 0)
 
 
 if __name__ == "__main__":

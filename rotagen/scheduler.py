@@ -15,6 +15,15 @@ from rotagen.models import (
 )
 
 
+_DEFAULT_QUEUE_IDEAL_SHIFT_SLOTS = {
+    "LDM1": 8,
+    "LDM2": 6,
+    "LDM3": 8,
+    "ICH_FW": 4,
+    "MSK_FW": 5,
+}
+
+
 def _day_slots(assignments_by_person_day: dict[tuple[str, str], set[int]], person_id: str, day: str) -> set[int]:
     return assignments_by_person_day[(person_id, day)]
 
@@ -57,6 +66,85 @@ def _daily_spread_ok(slots: set[int], new_slot: int, max_spread_slots: int) -> b
     return (max(merged) - min(merged) + 1) <= max_spread_slots
 
 
+def _effective_min_shift_slots(inp: ScheduleInput, day: str) -> int:
+    if day == "sat":
+        return 8
+    return max(1, inp.config.min_shift_slots)
+
+
+def _ideal_shift_slots(inp: ScheduleInput, day: str, queue: str) -> int | None:
+    if day == "sat":
+        return 8
+    configured = getattr(inp.queue_rules.get(queue), "ideal_shift_slots", None)
+    if configured is not None:
+        try:
+            val = int(configured)
+            if val > 0:
+                return val
+        except (TypeError, ValueError):
+            pass
+    return _DEFAULT_QUEUE_IDEAL_SHIFT_SLOTS.get(queue.upper())
+
+
+def _open_eligible_demand_by_slot(
+    inp: ScheduleInput,
+    people_by_id: dict[str, object],
+    demand_required: dict[tuple[str, int, str], int],
+    assignments_by_day_slot_queue: dict[tuple[str, int, str], list[str]],
+    person_id: str,
+    day: str,
+    slot: int,
+) -> bool:
+    if not _is_available(inp, person_id, day, slot, people_by_id):
+        return False
+    if any(person_id in assignments_by_day_slot_queue[(day, slot, q)] for q in inp.queue_rules):
+        return False
+    person_roles = people_by_id[person_id].roles
+    for queue, rule in inp.queue_rules.items():
+        need = demand_required.get((day, slot, queue), 0)
+        if need <= len(assignments_by_day_slot_queue[(day, slot, queue)]):
+            continue
+        if _role_rank(rule, person_roles) < 9999:
+            return True
+    return False
+
+
+def _can_still_meet_min_shift(
+    inp: ScheduleInput,
+    people_by_id: dict[str, object],
+    demand_required: dict[tuple[str, int, str], int],
+    assignments_by_day_slot_queue: dict[tuple[str, int, str], list[str]],
+    person_id: str,
+    day: str,
+    current_slots: set[int],
+    new_slot: int,
+) -> bool:
+    min_slots = _effective_min_shift_slots(inp, day)
+    merged = current_slots | {new_slot}
+    if len(merged) >= min_slots:
+        return True
+    run = set(merged)
+    left = min(merged) - 1
+    while left >= 0:
+        if _open_eligible_demand_by_slot(
+            inp, people_by_id, demand_required, assignments_by_day_slot_queue, person_id, day, left
+        ):
+            run.add(left)
+            left -= 1
+            continue
+        break
+    right = max(merged) + 1
+    while right < 24:
+        if _open_eligible_demand_by_slot(
+            inp, people_by_id, demand_required, assignments_by_day_slot_queue, person_id, day, right
+        ):
+            run.add(right)
+            right += 1
+            continue
+        break
+    return len(run) >= min_slots
+
+
 def _score_candidate(
     inp: ScheduleInput,
     person_id: str,
@@ -66,6 +154,7 @@ def _score_candidate(
     totals: dict[str, int],
     fairness: dict[str, FairnessHistory],
     people_by_id: dict[str, object],
+    assignments_by_person_day: dict[tuple[str, str], set[int]],
 ) -> tuple:
     rule = inp.queue_rules[queue]
     person = people_by_id[person_id]
@@ -87,8 +176,22 @@ def _score_candidate(
     target = person.target_hours if person.target_hours is not None else inp.config.global_target_hours
     target_slots = int(target * 2)
     target_gap = abs(target_slots - (totals[person_id] + 1))
+    day_slots = _day_slots(assignments_by_person_day, person_id, day)
+    ideal = _ideal_shift_slots(inp, day, queue)
+    ideal_penalty = 0
+    new_shift_penalty = 0
+    if ideal is not None:
+        projected = len(day_slots) + 1
+        ideal_penalty = abs(ideal - projected)
+        if not day_slots:
+            new_shift_penalty = ideal
 
-    return (rank, friday_late_penalty + saturday_penalty + band_penalty, target_gap, totals[person_id])
+    return (
+        rank,
+        friday_late_penalty + saturday_penalty + band_penalty + ideal_penalty + new_shift_penalty,
+        target_gap,
+        totals[person_id],
+    )
 
 
 def generate_schedule(inp: ScheduleInput) -> ScheduleResult:
@@ -100,9 +203,32 @@ def generate_schedule(inp: ScheduleInput) -> ScheduleResult:
 
     fairness = {k: replace(v) for k, v in inp.fairness.items()}
 
+    demand_required = {(d.day, d.slot, d.queue): d.required for d in inp.demand}
+    eligible_counts = {}
+    for d in inp.demand:
+        cnt = 0
+        for p in inp.people:
+            if not _is_available(inp, p.person_id, d.day, d.slot, people_by_id):
+                continue
+            if _role_rank(inp.queue_rules[d.queue], p.roles) >= 9999:
+                continue
+            cnt += 1
+        eligible_counts[(d.day, d.slot, d.queue)] = cnt
+
+    day_order = {d: i for i, d in enumerate(DAYS)}
+    special_day_priority = {"sat": -2, "fri": -1}
+
     demand_items = sorted(
         inp.demand,
-        key=lambda d: (DAYS.index(d.day), d.slot, inp.queue_rules[d.queue].queue_priority),
+        key=lambda d: (
+            special_day_priority.get(d.day, 0),
+            -(1 if d.day == "fri" and slot_to_band(d.slot) == "late" else 0),
+            eligible_counts.get((d.day, d.slot, d.queue), 9999),
+            -d.required,
+            -d.slot if d.day in {"sat", "fri"} else d.slot,
+            day_order[d.day],
+            inp.queue_rules[d.queue].queue_priority,
+        ),
     )
 
     for item in demand_items:
@@ -127,8 +253,29 @@ def generate_schedule(inp: ScheduleInput) -> ScheduleResult:
                     continue
                 if not _daily_spread_ok(day_slots, item.slot, inp.config.max_spread_slots):
                     continue
+                if not _can_still_meet_min_shift(
+                    inp,
+                    people_by_id,
+                    demand_required,
+                    assignments_by_day_slot_queue,
+                    p.person_id,
+                    item.day,
+                    day_slots,
+                    item.slot,
+                ):
+                    continue
 
-                score = _score_candidate(inp, p.person_id, item.day, item.slot, item.queue, totals, fairness, people_by_id)
+                score = _score_candidate(
+                    inp,
+                    p.person_id,
+                    item.day,
+                    item.slot,
+                    item.queue,
+                    totals,
+                    fairness,
+                    people_by_id,
+                    assignments_by_person_day,
+                )
                 if score[0] < 9999:
                     candidates.append((score, p.person_id))
 
@@ -178,6 +325,17 @@ def generate_schedule(inp: ScheduleInput) -> ScheduleResult:
                             continue
                         if not _daily_spread_ok(day_slots, item.slot, inp.config.max_spread_slots):
                             continue
+                        if not _can_still_meet_min_shift(
+                            inp,
+                            people_by_id,
+                            demand_required,
+                            assignments_by_day_slot_queue,
+                            repl.person_id,
+                            item.day,
+                            day_slots,
+                            item.slot,
+                        ):
+                            continue
 
                         if _role_rank(inp.queue_rules[donor_queue], repl.roles) >= 9999:
                             continue
@@ -216,7 +374,7 @@ def generate_schedule(inp: ScheduleInput) -> ScheduleResult:
         if not slots:
             continue
         ordered = sorted(slots)
-        if len(ordered) >= inp.config.min_shift_slots:
+        if len(ordered) >= _effective_min_shift_slots(inp, day):
             continue
         for slot in ordered:
             for queue in inp.queue_rules:
@@ -234,6 +392,7 @@ def generate_schedule(inp: ScheduleInput) -> ScheduleResult:
                             reason="Removed to satisfy minimum shift length",
                         )
                     )
+        assignments_by_person_day[(person_id, day)] = set()
 
     assignments: list[Assignment] = []
     for (day, slot, queue), people in assignments_by_day_slot_queue.items():
