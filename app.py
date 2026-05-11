@@ -264,7 +264,7 @@ def export_matrix_xlsx_route():
     return send_file(
         BytesIO(data),
         as_attachment=True,
-        download_name=f"requirement-matrix-{datetime.now(timezone.utc):%Y%m%d%H%M%S}.xlsx",
+        download_name=f"requirement-matrix-{datetime.now(timezone.utc):%Y-%m-%d}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
@@ -279,6 +279,8 @@ def import_matrix_route():
         demand = import_matrix(f.read(), f.filename or "")
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
+    except Exception:
+        return jsonify({"error": "Failed to parse the uploaded file. Ensure it is a valid CSV or XLSX requirement matrix."}), 400
     return jsonify(demand)
 
 

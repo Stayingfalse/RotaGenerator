@@ -578,6 +578,13 @@ function App() {
       const knownQueues = new Set(state.jobTitles.map((j) => j.queue));
       const toImport = data.filter((d) => knownQueues.has(d.queue));
       const skipped = data.length - toImport.length;
+      if (toImport.length === 0) {
+        throw new Error(
+          data.length === 0
+            ? "The file contained no demand rows."
+            : `None of the ${data.length} rows matched a configured queue. Check your queue names and try again.`
+        );
+      }
       setState((prev) => {
         const demandMap = new Map(prev.demandMap);
         for (const d of toImport) {
