@@ -34,8 +34,8 @@ function fullAvailability() {
 
 function normalizeConfig(raw) {
   const people = (raw.people || []).map((p) => ({
-    person_id: p.person_id,
-    name: p.name,
+    person_id: String(p.person_id || ""),
+    name: String(p.name || ""),
     roles: unique(p.roles || []),
     default_availability: p.default_availability || fullAvailability(),
     target_hours: p.target_hours ?? "",
@@ -90,8 +90,8 @@ function buildPayload(state) {
 
   return {
     people: state.people.map((p) => ({
-      person_id: p.person_id,
-      name: p.name,
+      person_id: String(p.person_id || ""),
+      name: String(p.name || ""),
       roles: unique(p.roles || []),
       default_availability: p.default_availability || fullAvailability(),
       target_hours: p.target_hours === "" ? null : Number(p.target_hours),
@@ -149,6 +149,19 @@ function App() {
     }));
   };
 
+  const renameUserId = (personId, candidate) => {
+    const nextId = slugify(candidate);
+    if (!nextId || nextId === personId) return;
+    if (state.people.some((p) => p.person_id === nextId)) {
+      setMessage(`User ID '${nextId}' already exists.`);
+      return;
+    }
+    setState((prev) => ({
+      ...prev,
+      people: prev.people.map((p) => (p.person_id === personId ? { ...p, person_id: nextId } : p)),
+    }));
+  };
+
   const addSkill = () => {
     const value = newSkill.trim();
     if (!value) return;
@@ -173,8 +186,8 @@ function App() {
   };
 
   const addJobTitle = () => {
-    const raw = newJobTitle.trim();
-    const queue = raw || `queue_${state.jobTitles.length + 1}`;
+    const trimmedInput = newJobTitle.trim();
+    const queue = trimmedInput || `queue_${state.jobTitles.length + 1}`;
     if (!queue) return;
     if (state.jobTitles.some((j) => j.queue === queue)) return;
 
@@ -213,7 +226,16 @@ function App() {
   const updateJobTitle = (queue, updater) => {
     setState((prev) => ({
       ...prev,
-      jobTitles: prev.jobTitles.map((j) => (j.queue === queue ? updater(j) : j)),
+      jobTitles: prev.jobTitles.map((j) => {
+        if (j.queue !== queue) return j;
+        const next = updater(j);
+        const allowed = unique(next.allowed_roles || []);
+        return {
+          ...next,
+          allowed_roles: allowed,
+          priority_roles: unique((next.priority_roles || []).filter((r) => allowed.includes(r))),
+        };
+      }),
     }));
   };
 
@@ -305,10 +327,7 @@ function App() {
                   <td>
                     <input
                       value={p.person_id}
-                      onChange={(e) => {
-                        const nextId = slugify(e.target.value) || p.person_id;
-                        updateUser(p.person_id, (curr) => ({ ...curr, person_id: nextId }));
-                      }}
+                      onChange={(e) => renameUserId(p.person_id, e.target.value)}
                     />
                   </td>
                   <td><input value={p.name} onChange={(e) => updateUser(p.person_id, (curr) => ({ ...curr, name: e.target.value }))} /></td>
@@ -543,11 +562,14 @@ function App() {
                       <td
                         className="dropzone"
                         onDragOver={(e) => e.preventDefault()}
-                        onDrop={async () => {
+                        onDrop={async (e) => {
                           if (!dragPayload) return;
+                          const targetBadge = e.target.closest("[data-queue]");
+                          const targetQueue = targetBadge ? targetBadge.getAttribute("data-queue") : null;
                           try {
                             if (dragPayload.day !== day || dragPayload.slot !== Number(slot)) return;
-                            await swap(dragPayload.day, dragPayload.slot, dragPayload.queue, dragPayload.targetQueue);
+                            if (!targetQueue || targetQueue === dragPayload.queue) return;
+                            await swap(dragPayload.day, dragPayload.slot, dragPayload.queue, targetQueue);
                           } catch (err) {
                             setMessage(err.message || "Swap failed");
                           } finally {
@@ -559,14 +581,9 @@ function App() {
                           <span
                             key={`${day}-${slot}-${a.queue}-${a.person_id}`}
                             className="badge"
+                            data-queue={a.queue}
                             draggable
-                            onDragStart={() => setDragPayload({ day, slot: Number(slot), queue: a.queue, targetQueue: a.queue })}
-                            onDragOver={(e) => e.preventDefault()}
-                            onDrop={(e) => {
-                              e.preventDefault();
-                              if (!dragPayload) return;
-                              setDragPayload((prev) => prev ? { ...prev, targetQueue: a.queue } : prev);
-                            }}
+                            onDragStart={() => setDragPayload({ day, slot: Number(slot), queue: a.queue })}
                           >
                             {a.queue}: {a.person_id}
                           </span>
