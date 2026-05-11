@@ -493,6 +493,9 @@ def generate_schedule(inp: ScheduleInput) -> ScheduleResult:
             if not added:
                 break
 
+        # Process higher slots first so if a replacement already has later-slot
+        # coverage, we can extend that coverage backward slot-by-slot while
+        # preserving contiguity, reducing avoidable removals/conflicts.
         ordered = sorted(slots, reverse=True)
         if len(ordered) >= _effective_min_shift_slots(inp, day):
             continue

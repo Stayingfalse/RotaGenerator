@@ -136,7 +136,7 @@ function conflictFixOptions(conflicts) {
   const options = [];
   if (hasMinShift) {
     options.push({ key: "min2", label: "Lower minimum shift to 2 slots", patch: { min_shift_slots: 2 } });
-    options.push({ key: "spread16", label: "Increase max spread to 16 slots (8 hrs)", patch: { max_spread_slots: 16 } });
+    options.push({ key: "spread16", label: "Increase max spread to 16 slots", patch: { max_spread_slots: 16 } });
   }
   if (hasCoverage) {
     options.push({ key: "daily10", label: "Increase max daily slots to 10", patch: { max_daily_slots: 10 } });
@@ -667,7 +667,7 @@ function App() {
       ...prev,
       config: { ...(prev.config || {}), ...patch },
     }));
-    setMessage("Applied suggestion. Generate schedule again to evaluate.");
+    setMessage("Applied suggestion. Regenerate the schedule to see the effects.");
   };
 
   const swap = async (day, slot, queueA, queueB) => {
