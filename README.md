@@ -40,7 +40,29 @@ PYTHONPATH=. python -m pytest -q
 
 ## Docker
 
+### Quick start (single container, data lost on restart)
+
 ```bash
 docker build -t rota-generator .
 docker run --rm -p 8080:8080 rota-generator
+```
+
+### Persistent database with Docker Compose (recommended)
+
+```bash
+docker compose up --build
+```
+
+This mounts a named Docker volume (`rota_data`) at `/data` inside the container so the SQLite database (`/data/rota.db`) survives container restarts and image updates.
+
+To back up the database, or to pre-seed it with a known config, copy the file out of the volume:
+
+```bash
+docker compose cp rota-generator:/data/rota.db ./rota.db.bak
+```
+
+You can also override the database path at run-time with the `ROTA_DB` environment variable:
+
+```bash
+docker run --rm -p 8080:8080 -e ROTA_DB=/data/rota.db -v rota_data:/data rota-generator
 ```
