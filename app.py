@@ -258,7 +258,13 @@ def save_config():
 def export_xlsx():
     if LAST_RESULT is None:
         return jsonify({"error": "No schedule to export"}), 400
-    data = export_single_worksheet(LAST_RESULT)
+    queue_order = None
+    if LAST_INPUT is not None:
+        queue_order = [
+            q.queue
+            for q in sorted(LAST_INPUT.queue_rules.values(), key=lambda r: r.queue_priority)
+        ]
+    data = export_single_worksheet(LAST_RESULT, queue_order=queue_order)
     return send_file(
         BytesIO(data),
         as_attachment=True,
