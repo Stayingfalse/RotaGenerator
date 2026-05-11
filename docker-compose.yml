@@ -1,0 +1,12 @@
+version: "3.8"
+
+services:
+  rota-generator:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - rota_data:/data
+
+volumes:
+  rota_data:
