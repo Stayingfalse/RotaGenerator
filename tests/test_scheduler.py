@@ -68,17 +68,44 @@ class SchedulerTests(unittest.TestCase):
         inp.demand = [DemandEntry("mon", 0, "LDM3", 1)]
         result = generate_schedule(inp)
         self.assertEqual(len(result.assignments), 0)
-        self.assertTrue(any("minimum shift" in c.reason.lower() for c in result.conflicts))
+        self.assertTrue(any("insufficient eligible coverage" in c.reason.lower() for c in result.conflicts))
 
     def test_saturday_fairness_updates(self):
         inp = _base_input()
         inp.demand = [
-            DemandEntry("sat", 16, "LDM2", 1),
-            DemandEntry("sat", 17, "LDM2", 1),
-            DemandEntry("sat", 18, "LDM2", 1),
+            DemandEntry("sat", slot, "LDM2", 1) for slot in range(8, 16)
         ]
         result = generate_schedule(inp)
         self.assertTrue(any(v.saturday_count > 0 for v in result.fairness.values()))
+
+    def test_saturday_requires_full_8_slot_shift(self):
+        inp = _base_input()
+        inp.demand = [DemandEntry("sat", 10, "LDM2", 1)]
+        result = generate_schedule(inp)
+        self.assertEqual(len(result.assignments), 0)
+        self.assertTrue(any("insufficient eligible coverage" in c.reason.lower() for c in result.conflicts))
+
+    def test_short_shift_cleanup_prefers_replacement_before_conflict(self):
+        people = [
+            Person("p1", "P1", {"TL"}, {d: set() for d in DAYS}, 2),
+            Person("p2", "P2", {"TL"}, {d: set(range(24)) for d in DAYS}, 6),
+        ]
+        people[0].default_availability["mon"] = {0, 1}
+        queue_rules = {"LDM3": QueueRule("LDM3", ["TL"], {"TL"}, 1)}
+        demand = [
+            DemandEntry("mon", 0, "LDM3", 1),
+            DemandEntry("mon", 1, "LDM3", 1),
+            DemandEntry("mon", 2, "LDM3", 1),
+        ]
+        inp = ScheduleInput(
+            people=people,
+            queue_rules=queue_rules,
+            demand=demand,
+            config=ScheduleConfig(min_shift_slots=3, max_daily_slots=8, max_spread_slots=12, global_target_hours=6),
+        )
+        result = generate_schedule(inp)
+        self.assertEqual(len([a for a in result.assignments if a.day == "mon"]), 3)
+        self.assertFalse(any("removed to satisfy minimum shift length" in c.reason.lower() for c in result.conflicts))
 
 
 if __name__ == "__main__":

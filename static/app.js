@@ -115,6 +115,36 @@ function buildPayload(state) {
   };
 }
 
+function summarizeConflicts(conflicts) {
+  const rows = new Map();
+  for (const c of conflicts || []) {
+    const key = `${c.reason}|${c.day}|${c.queue}`;
+    if (!rows.has(key)) {
+      rows.set(key, { reason: c.reason, day: c.day, queue: c.queue, count: 0, needed: 0, assigned: 0 });
+    }
+    const row = rows.get(key);
+    row.count += 1;
+    row.needed += Number(c.needed) || 0;
+    row.assigned += Number(c.assigned) || 0;
+  }
+  return Array.from(rows.values()).sort((a, b) => b.count - a.count || a.day.localeCompare(b.day) || a.queue.localeCompare(b.queue));
+}
+
+function conflictFixOptions(conflicts) {
+  const hasMinShift = (conflicts || []).some((c) => String(c.reason || "").toLowerCase().includes("minimum shift"));
+  const hasCoverage = (conflicts || []).some((c) => String(c.reason || "").toLowerCase().includes("insufficient eligible"));
+  const options = [];
+  if (hasMinShift) {
+    options.push({ key: "min2", label: "Lower minimum shift to 2 slots", patch: { min_shift_slots: 2 } });
+    options.push({ key: "spread16", label: "Increase max spread to 16 slots", patch: { max_spread_slots: 16 } });
+  }
+  if (hasCoverage) {
+    options.push({ key: "daily10", label: "Increase max daily slots to 10", patch: { max_daily_slots: 10 } });
+  }
+  options.push({ key: "hours18", label: "Set global target hours to 18", patch: { global_target_hours: 18 } });
+  return options;
+}
+
 // ---- Availability Editor Component ----
 function AvailabilityEditor({ person, overrides, onChange, onOverridesChange }) {
   const [activeTab, setActiveTab] = useState("default");
@@ -249,6 +279,7 @@ function App() {
   const [result, setResult] = useState(null);
   const [dragPayload, setDragPayload] = useState(null);
   const [expandedAvail, setExpandedAvail] = useState(null);
+  const [showConflictHelp, setShowConflictHelp] = useState(false);
   const csvInputRef = useRef(null);
   const configImportRef = useRef(null);
   const matrixImportRef = useRef(null);
@@ -291,6 +322,8 @@ function App() {
   }, [state]);
 
   const slotOptions = useMemo(() => Array.from({ length: SLOT_COUNT }, (_, i) => ({ slot: i, label: slotLabel(i) })), []);
+  const conflictSummary = useMemo(() => summarizeConflicts(result?.conflicts || []), [result]);
+  const fixOptions = useMemo(() => conflictFixOptions(result?.conflicts || []), [result]);
 
   const addUser = () => {
     setState((prev) => {
@@ -627,6 +660,14 @@ function App() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const applyConflictFix = (patch) => {
+    setState((prev) => ({
+      ...prev,
+      config: { ...(prev.config || {}), ...patch },
+    }));
+    setMessage("Applied suggestion. Regenerate the schedule to see the effects.");
   };
 
   const swap = async (day, slot, queueA, queueB) => {
@@ -984,8 +1025,60 @@ function App() {
 
       <div className="panel">
         <h3 className="section-title">Conflicts</h3>
-        <pre>{JSON.stringify(result?.conflicts || [], null, 2)}</pre>
+        {!result && <div className="muted">No schedule generated yet.</div>}
+        {result && result.conflicts.length === 0 && <div className="muted">No conflicts 🎉</div>}
+        {result && result.conflicts.length > 0 && (
+          <>
+            <div className="row" style={{ alignItems: "center", marginBottom: 10 }}>
+              <div className="muted">{result.conflicts.length} conflict instance(s)</div>
+              <button className="btn" style={{ maxWidth: 220 }} onClick={() => setShowConflictHelp(true)}>Conflict Fix Options</button>
+            </div>
+            <div className="table-wrap" style={{ maxHeight: 240 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Reason</th>
+                    <th>Day</th>
+                    <th>Queue</th>
+                    <th>Rows</th>
+                    <th>Needed</th>
+                    <th>Assigned</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {conflictSummary.map((c) => (
+                    <tr key={`${c.reason}|${c.day}|${c.queue}`}>
+                      <td>{c.reason}</td>
+                      <td>{String(c.day || "").toUpperCase()}</td>
+                      <td>{c.queue}</td>
+                      <td>{c.count}</td>
+                      <td>{c.needed}</td>
+                      <td>{c.assigned}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
+
+      {showConflictHelp && (
+        <div className="modal-backdrop" onClick={() => setShowConflictHelp(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Conflict Fix Options</h3>
+            <p className="muted" style={{ marginTop: 0 }}>Pick one option, then regenerate to compare results.</p>
+            <div style={{ display: "grid", gap: 8 }}>
+              {fixOptions.map((opt) => (
+                <button key={opt.key} className="btn" onClick={() => applyConflictFix(opt.patch)}>{opt.label}</button>
+              ))}
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <button className="btn primary" onClick={() => setShowConflictHelp(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
