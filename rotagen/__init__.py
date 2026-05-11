@@ -1,0 +1,1 @@
+"""Rota generator package."""
