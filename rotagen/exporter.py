@@ -9,8 +9,8 @@ from openpyxl.utils import get_column_letter
 from rotagen.models import DAYS, ScheduleResult, slot_label
 
 
-# Pastel background colours for day groups (cycles if more than 6 days)
-_DAY_COLOURS = ["D6E4F7", "D6F7E4", "F7F0D6", "F7D6D6", "E4D6F7", "D6F7F3"]
+# Pastel background colors for day groups (cycles if more than 6 days)
+_DAY_COLORS = ["D6E4F7", "D6F7E4", "F7F0D6", "F7D6D6", "E4D6F7", "D6F7F3"]
 
 
 def export_single_worksheet(result: ScheduleResult) -> bytes:
@@ -46,7 +46,7 @@ def export_single_worksheet(result: ScheduleResult) -> bytes:
     time_col = 1
     col = 2
     for d_idx, day in enumerate(days_present):
-        colour = _DAY_COLOURS[d_idx % len(_DAY_COLOURS)]
+        colour = _DAY_COLORS[d_idx % len(_DAY_COLORS)]
         fill = PatternFill("solid", fgColor=colour)
         start_col = col
         end_col = col + len(queues) - 1
@@ -67,7 +67,7 @@ def export_single_worksheet(result: ScheduleResult) -> bytes:
     # ---- Header row 2: "Time" | Q1 Q2 Q3 | Q1 Q2 Q3 | … ----
     header2 = ["Time"]
     for d_idx, _day in enumerate(days_present):
-        colour = _DAY_COLOURS[d_idx % len(_DAY_COLOURS)]
+        colour = _DAY_COLORS[d_idx % len(_DAY_COLORS)]
         fill = PatternFill("solid", fgColor=colour)
         for q in queues:
             header2.append(q)
@@ -76,7 +76,7 @@ def export_single_worksheet(result: ScheduleResult) -> bytes:
     row2_idx = 2
     col = 2
     for d_idx, _day in enumerate(days_present):
-        colour = _DAY_COLOURS[d_idx % len(_DAY_COLOURS)]
+        colour = _DAY_COLORS[d_idx % len(_DAY_COLORS)]
         fill = PatternFill("solid", fgColor=colour)
         for _q in queues:
             cell = ws.cell(row=row2_idx, column=col)
