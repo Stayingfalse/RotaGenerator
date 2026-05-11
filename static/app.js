@@ -271,7 +271,8 @@ function App() {
         });
         if (!res.ok) throw new Error("Save failed");
         setSaveStatus("saved");
-      } catch {
+      } catch (err) {
+        console.error("Auto-save failed:", err);
         setSaveStatus("error");
       }
     }, 1000);
@@ -464,6 +465,7 @@ function App() {
       });
       setMessage(`Imported ${data.length} user(s) from CSV.`);
     } catch (err) {
+      console.error("CSV import error:", err);
       setMessage(err.message || "CSV import failed");
     }
     e.target.value = "";

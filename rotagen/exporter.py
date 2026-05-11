@@ -101,7 +101,7 @@ def export_single_worksheet(result: ScheduleResult) -> bytes:
 
     # ---- Auto-width columns ----
     for col_cells in ws.columns:
-        max_len = max((len(str(c.value or "")) for c in col_cells), default=0)
+        max_len = max([len(str(c.value or "")) for c in col_cells], default=0)
         ws.column_dimensions[get_column_letter(col_cells[0].column)].width = min(max_len + 2, 30)
 
     # ---- Conflicts sheet ----

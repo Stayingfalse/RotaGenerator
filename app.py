@@ -176,13 +176,17 @@ def swap():
 @app.post("/import-csv")
 def import_csv():
     """Parse a CSV upload with columns: UserID, UserName, Account, Hours, Role.
+    Column names are matched case-insensitively with surrounding whitespace stripped.
     Returns a JSON array of person objects ready to merge into the dashboard state.
     Multiple rows for the same UserID accumulate roles.
     """
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
     f = request.files["file"]
-    text = f.read().decode("utf-8-sig", errors="replace")
+    try:
+        text = f.read().decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return jsonify({"error": "File is not valid UTF-8. Please save as UTF-8 and try again."}), 400
     reader = csv.DictReader(io.StringIO(text))
 
     # Normalise header names: strip whitespace and lowercase
