@@ -1,6 +1,7 @@
 const { useMemo, useState, useRef, useEffect } = React;
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat"];
+const DAY_BG_COLORS = ["#dbeafe", "#dcfce7", "#fef9c3", "#fee2e2", "#ede9fe", "#ccfbf1"];
 const START_HOUR = 8;
 const SLOT_COUNT = 24;
 
@@ -242,13 +243,13 @@ function App() {
   const [state, setState] = useState(() => normalizeConfig(window.__INITIAL_CONFIG__ || {}));
   const [newRole, setNewRole] = useState("");
   const [newJobTitle, setNewJobTitle] = useState("");
-  const [activeDay, setActiveDay] = useState("mon");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [dragPayload, setDragPayload] = useState(null);
   const [expandedAvail, setExpandedAvail] = useState(null);
   const csvInputRef = useRef(null);
+  const configImportRef = useRef(null);
   const saveTimerRef = useRef(null);
   const saveControllerRef = useRef(null);
   const isFirstRender = useRef(true);
@@ -480,6 +481,34 @@ function App() {
     e.target.value = "";
   };
 
+  const exportConfig = () => {
+    const payload = buildPayload(state);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `rota-config-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleConfigImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const raw = JSON.parse(ev.target.result);
+        setState(normalizeConfig(raw));
+        setMessage("Config imported successfully.");
+      } catch (err) {
+        setMessage("Failed to import config: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
   const generate = async () => {
     const validationError = validateForGenerate();
     if (validationError) {
@@ -525,6 +554,9 @@ function App() {
         <div className="row" style={{ alignItems: "center" }}>
           <button className="btn primary" onClick={generate} disabled={busy}>{busy ? "Generating..." : "Generate Schedule"}</button>
           <a className="btn" href="/export.xlsx" target="_blank" rel="noreferrer">Export XLSX</a>
+          <button className="btn" onClick={exportConfig}>Export Config</button>
+          <button className="btn" onClick={() => configImportRef.current && configImportRef.current.click()}>Import Config</button>
+          <input ref={configImportRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleConfigImport} />
           {saveStatus === "saving" && <span className="muted" style={{ fontSize: 12 }}>⏳ Saving…</span>}
           {saveStatus === "saved" && <span style={{ color: "#15803d", fontSize: 12 }}>✓ Saved</span>}
           {saveStatus === "error" && <span style={{ color: "#b91c1c", fontSize: 12 }}>✗ Save failed</span>}
@@ -739,33 +771,49 @@ function App() {
 
       <div className="panel">
         <h3 className="section-title">Requirement Matrix (Day × Slot × Queue)</h3>
-        <div className="day-tabs">
-          {DAYS.map((day) => (
-            <button key={day} className={`btn ${activeDay === day ? "active" : ""}`} onClick={() => setActiveDay(day)}>
-              {day.toUpperCase()}
-            </button>
-          ))}
-        </div>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Slot</th>
-                {state.jobTitles.map((j) => <th key={`head-${j.queue}`}>{j.queue}</th>)}
+                <th rowSpan={2} style={{ position: "sticky", left: 0, zIndex: 2, background: "#f3f4f6", whiteSpace: "nowrap" }}>Slot</th>
+                {DAYS.map((day, dIdx) => (
+                  <th
+                    key={day}
+                    colSpan={Math.max(state.jobTitles.length, 1)}
+                    style={{ textAlign: "center", background: DAY_BG_COLORS[dIdx % DAY_BG_COLORS.length], fontWeight: "bold" }}
+                  >
+                    {day.toUpperCase()}
+                  </th>
+                ))}
+              </tr>
+              <tr>
+                {DAYS.map((day, dIdx) =>
+                  state.jobTitles.length === 0
+                    ? <th key={day} style={{ background: DAY_BG_COLORS[dIdx % DAY_BG_COLORS.length] }} />
+                    : state.jobTitles.map((j) => (
+                        <th key={`${day}-${j.queue}`} style={{ background: DAY_BG_COLORS[dIdx % DAY_BG_COLORS.length], whiteSpace: "nowrap" }}>
+                          {j.queue}
+                        </th>
+                      ))
+                )}
               </tr>
             </thead>
             <tbody>
               {slotOptions.map((slotInfo) => (
                 <tr key={`row-${slotInfo.slot}`}>
-                  <td>{slotInfo.label}</td>
-                  {state.jobTitles.map((j) => {
-                    const value = state.demandMap.get(`${activeDay}|${slotInfo.slot}|${j.queue}`) || 0;
-                    return (
-                      <td key={`${activeDay}-${slotInfo.slot}-${j.queue}`}>
-                        <input type="number" min="0" value={value} onChange={(e) => updateDemand(activeDay, slotInfo.slot, j.queue, e.target.value)} />
-                      </td>
-                    );
-                  })}
+                  <td style={{ position: "sticky", left: 0, background: "#fff", fontWeight: "bold", whiteSpace: "nowrap", zIndex: 1 }}>
+                    {slotInfo.label}
+                  </td>
+                  {DAYS.map((day) =>
+                    state.jobTitles.map((j) => {
+                      const value = state.demandMap.get(`${day}|${slotInfo.slot}|${j.queue}`) || 0;
+                      return (
+                        <td key={`${day}-${slotInfo.slot}-${j.queue}`}>
+                          <input type="number" min="0" value={value} style={{ width: 44 }} onChange={(e) => updateDemand(day, slotInfo.slot, j.queue, e.target.value)} />
+                        </td>
+                      );
+                    })
+                  )}
                 </tr>
               ))}
             </tbody>
