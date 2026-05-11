@@ -121,13 +121,13 @@ def home():
             }
             for q in sample_input().queue_rules.values()
         ],
-        "demand": [asdict(d) for d in sample_input().demand[:48]],
+        "demand": [asdict(d) for d in sample_input().demand],
         "overrides": [],
         "holidays": [],
         "fairness": [],
         "config": asdict(sample_input().config),
     }
-    return render_template("index.html", sample_json=json.dumps(payload, indent=2))
+    return render_template("index.html", sample_payload=payload, sample_json=json.dumps(payload, indent=2))
 
 
 @app.post("/generate")
