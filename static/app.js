@@ -28,8 +28,9 @@ function slugify(value) {
 }
 
 function fullAvailability() {
-  const allSlots = Array.from({ length: SLOT_COUNT }, (_, i) => i);
-  return Object.fromEntries(DAYS.map((day) => [day, allSlots]));
+  return Object.fromEntries(
+    DAYS.map((day) => [day, Array.from({ length: SLOT_COUNT }, (_, i) => i)]),
+  );
 }
 
 function normalizeConfig(raw) {
