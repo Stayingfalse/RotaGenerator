@@ -84,7 +84,7 @@ def _score_candidate(
     if day == "sat":
         saturday_penalty = fh.saturday_count * 4
 
-    target = people_by_id[person_id].target_hours if people_by_id[person_id].target_hours is not None else inp.config.global_target_hours
+    target = person.target_hours if person.target_hours is not None else inp.config.global_target_hours
     target_slots = int(target * 2)
     target_gap = abs(target_slots - (totals[person_id] + 1))
 

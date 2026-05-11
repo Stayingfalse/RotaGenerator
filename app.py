@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 
 from flask import Flask, jsonify, render_template, request, send_file
@@ -164,7 +164,7 @@ def export_xlsx():
     return send_file(
         BytesIO(data),
         as_attachment=True,
-        download_name=f"rota-{datetime.utcnow():%Y%m%d%H%M%S}.xlsx",
+        download_name=f"rota-{datetime.now(timezone.utc):%Y%m%d%H%M%S}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
