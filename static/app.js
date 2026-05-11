@@ -94,7 +94,7 @@ function buildPayload(state) {
       name: String(p.name || ""),
       roles: unique(p.roles || []),
       default_availability: p.default_availability || fullAvailability(),
-      target_hours: p.target_hours === "" ? null : Number(p.target_hours),
+      target_hours: p.target_hours === "" || Number.isNaN(Number(p.target_hours)) ? null : Number(p.target_hours),
     })),
     queue_rules: state.jobTitles.map((q) => ({
       queue: q.queue,
@@ -188,7 +188,6 @@ function App() {
   const addJobTitle = () => {
     const trimmedInput = newJobTitle.trim();
     const queue = trimmedInput || `queue_${state.jobTitles.length + 1}`;
-    if (!queue) return;
     if (state.jobTitles.some((j) => j.queue === queue)) return;
 
     setState((prev) => {
@@ -449,7 +448,7 @@ function App() {
                             ? unique([...(curr.allowed_roles || []), skill])
                             : (curr.allowed_roles || []).filter((r) => r !== skill);
                           const priority = e.target.checked
-                            ? unique([...(curr.priority_roles || []), skill])
+                            ? unique(curr.priority_roles || [])
                             : (curr.priority_roles || []).filter((r) => r !== skill);
                           return { ...curr, allowed_roles: allowed, priority_roles: priority };
                         });
@@ -463,6 +462,17 @@ function App() {
 
             <div style={{ marginTop: 8 }}>
               <div className="muted">Priority Order</div>
+              {(j.allowed_roles || []).filter((skill) => !(j.priority_roles || []).includes(skill)).map((skill) => (
+                <span key={`${j.queue}-add-priority-${skill}`} className="pill">
+                  {skill}
+                  <button
+                    className="btn"
+                    onClick={() => updateJobTitle(j.queue, (curr) => ({ ...curr, priority_roles: unique([...(curr.priority_roles || []), skill]) }))}
+                  >
+                    Add to Priority
+                  </button>
+                </span>
+              ))}
               {(j.priority_roles || []).filter((skill) => (j.allowed_roles || []).includes(skill)).map((skill, idx, arr) => (
                 <span key={`${j.queue}-priority-${skill}`} className="pill">
                   {idx + 1}. {skill}
@@ -567,8 +577,14 @@ function App() {
                           const targetBadge = e.target.closest("[data-queue]");
                           const targetQueue = targetBadge ? targetBadge.getAttribute("data-queue") : null;
                           try {
-                            if (dragPayload.day !== day || dragPayload.slot !== Number(slot)) return;
-                            if (!targetQueue || targetQueue === dragPayload.queue) return;
+                            if (dragPayload.day !== day || dragPayload.slot !== Number(slot)) {
+                              setMessage("Swaps are only allowed within the same day and slot.");
+                              return;
+                            }
+                            if (!targetQueue || targetQueue === dragPayload.queue) {
+                              setMessage("Drop onto a different queue badge to swap.");
+                              return;
+                            }
                             await swap(dragPayload.day, dragPayload.slot, dragPayload.queue, targetQueue);
                           } catch (err) {
                             setMessage(err.message || "Swap failed");
