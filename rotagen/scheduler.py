@@ -22,10 +22,22 @@ _DEFAULT_QUEUE_IDEAL_SHIFT_SLOTS = {
     "ICH_FW": 4,
     "MSK_FW": 5,
 }
+UNELIGIBLE_RANK = 9999
+UNKNOWN_ELIGIBLE_COUNT = 9999
+UNELIGIBLE_SCORE = (UNELIGIBLE_RANK,) * 4
+FRIDAY_LATE_SORT_KEY = -1
+# Earlier sort-key values are processed first. Saturday is strongest contested-day
+# priority, Friday next, then all other days.
+SATURDAY_DAY_SORT_KEY = -2
+FRIDAY_DAY_SORT_KEY = -1
 
 
 def _day_slots(assignments_by_person_day: dict[tuple[str, str], set[int]], person_id: str, day: str) -> set[int]:
     return assignments_by_person_day[(person_id, day)]
+
+
+def _is_friday_late_slot(day: str, slot: int) -> bool:
+    return day == "fri" and slot_to_band(slot) == "late"
 
 
 def _is_available(inp: ScheduleInput, person_id: str, day: str, slot: int, people_by_id: dict[str, object]) -> bool:
@@ -47,7 +59,7 @@ def _role_rank(rule: QueueRule, person_roles: set[str]) -> int:
         return best
     if person_roles & rule.allowed_roles:
         return len(rule.priority_roles) + 2
-    return 9999
+    return UNELIGIBLE_RANK
 
 
 def _would_split(slots: set[int], new_slot: int) -> bool:
@@ -104,7 +116,7 @@ def _open_eligible_demand_by_slot(
         need = demand_required.get((day, slot, queue), 0)
         if need <= len(assignments_by_day_slot_queue[(day, slot, queue)]):
             continue
-        if _role_rank(rule, person_roles) < 9999:
+        if _role_rank(rule, person_roles) < UNELIGIBLE_RANK:
             return True
     return False
 
@@ -159,8 +171,8 @@ def _score_candidate(
     rule = inp.queue_rules[queue]
     person = people_by_id[person_id]
     rank = _role_rank(rule, person.roles)
-    if rank >= 9999:
-        return (9999, 9999, 9999, 9999)
+    if rank >= UNELIGIBLE_RANK:
+        return UNELIGIBLE_SCORE
 
     fh = fairness.setdefault(person_id, FairnessHistory(person_id=person_id))
     band = slot_to_band(slot)
@@ -179,16 +191,16 @@ def _score_candidate(
     day_slots = _day_slots(assignments_by_person_day, person_id, day)
     ideal = _ideal_shift_slots(inp, day, queue)
     ideal_penalty = 0
-    new_shift_penalty = 0
+    empty_shift_start_penalty = 0
     if ideal is not None:
         projected = len(day_slots) + 1
         ideal_penalty = abs(ideal - projected)
         if not day_slots:
-            new_shift_penalty = ideal
+            empty_shift_start_penalty = ideal
 
     return (
         rank,
-        friday_late_penalty + saturday_penalty + band_penalty + ideal_penalty + new_shift_penalty,
+        friday_late_penalty + saturday_penalty + band_penalty + ideal_penalty + empty_shift_start_penalty,
         target_gap,
         totals[person_id],
     )
@@ -210,23 +222,23 @@ def generate_schedule(inp: ScheduleInput) -> ScheduleResult:
         for p in inp.people:
             if not _is_available(inp, p.person_id, d.day, d.slot, people_by_id):
                 continue
-            if _role_rank(inp.queue_rules[d.queue], p.roles) >= 9999:
+            if _role_rank(inp.queue_rules[d.queue], p.roles) >= UNELIGIBLE_RANK:
                 continue
             cnt += 1
         eligible_counts[(d.day, d.slot, d.queue)] = cnt
 
     day_order = {d: i for i, d in enumerate(DAYS)}
-    special_day_priority = {"sat": -2, "fri": -1}
+    special_day_priority = {"sat": SATURDAY_DAY_SORT_KEY, "fri": FRIDAY_DAY_SORT_KEY}
 
     demand_items = sorted(
         inp.demand,
         key=lambda d: (
             special_day_priority.get(d.day, 0),
-            -(1 if d.day == "fri" and slot_to_band(d.slot) == "late" else 0),
-            eligible_counts.get((d.day, d.slot, d.queue), 9999),
+            FRIDAY_LATE_SORT_KEY if _is_friday_late_slot(d.day, d.slot) else 0,
+            eligible_counts.get((d.day, d.slot, d.queue), UNKNOWN_ELIGIBLE_COUNT),
             -d.required,
             -d.slot if d.day in {"sat", "fri"} else d.slot,
-            day_order[d.day],
+            day_order.get(d.day, len(DAYS) + 1),
             inp.queue_rules[d.queue].queue_priority,
         ),
     )
@@ -276,7 +288,7 @@ def generate_schedule(inp: ScheduleInput) -> ScheduleResult:
                     people_by_id,
                     assignments_by_person_day,
                 )
-                if score[0] < 9999:
+                if score[0] < UNELIGIBLE_RANK:
                     candidates.append((score, p.person_id))
 
             if candidates:
@@ -301,7 +313,7 @@ def generate_schedule(inp: ScheduleInput) -> ScheduleResult:
                 for donor_person in donors:
                     donor_rule = inp.queue_rules[item.queue]
                     donor_roles = people_by_id[donor_person].roles
-                    if _role_rank(donor_rule, donor_roles) >= 9999:
+                    if _role_rank(donor_rule, donor_roles) >= UNELIGIBLE_RANK:
                         continue
 
                     replacement = None
@@ -337,7 +349,7 @@ def generate_schedule(inp: ScheduleInput) -> ScheduleResult:
                         ):
                             continue
 
-                        if _role_rank(inp.queue_rules[donor_queue], repl.roles) >= 9999:
+                        if _role_rank(inp.queue_rules[donor_queue], repl.roles) >= UNELIGIBLE_RANK:
                             continue
                         replacement = repl.person_id
                         break
@@ -376,12 +388,14 @@ def generate_schedule(inp: ScheduleInput) -> ScheduleResult:
         ordered = sorted(slots)
         if len(ordered) >= _effective_min_shift_slots(inp, day):
             continue
+        removed_slots: set[int] = set()
         for slot in ordered:
             for queue in inp.queue_rules:
                 k = (day, slot, queue)
                 if person_id in assignments_by_day_slot_queue[k]:
                     assignments_by_day_slot_queue[k].remove(person_id)
                     totals[person_id] -= 1
+                    removed_slots.add(slot)
                     conflicts.append(
                         Conflict(
                             day=day,
@@ -392,7 +406,8 @@ def generate_schedule(inp: ScheduleInput) -> ScheduleResult:
                             reason="Removed to satisfy minimum shift length",
                         )
                     )
-        assignments_by_person_day[(person_id, day)] = set()
+        if removed_slots:
+            assignments_by_person_day[(person_id, day)].difference_update(removed_slots)
 
     assignments: list[Assignment] = []
     for (day, slot, queue), people in assignments_by_day_slot_queue.items():
@@ -427,9 +442,9 @@ def validate_and_apply_swap(inp: ScheduleInput, result: ScheduleResult, day: str
     pa = next(p for p in inp.people if p.person_id == a.person_id)
     pb = next(p for p in inp.people if p.person_id == b.person_id)
 
-    if _role_rank(inp.queue_rules[queue_b], pa.roles) >= 9999:
+    if _role_rank(inp.queue_rules[queue_b], pa.roles) >= UNELIGIBLE_RANK:
         return result, f"Swap failed: {pa.name} not eligible for {queue_b}"
-    if _role_rank(inp.queue_rules[queue_a], pb.roles) >= 9999:
+    if _role_rank(inp.queue_rules[queue_a], pb.roles) >= UNELIGIBLE_RANK:
         return result, f"Swap failed: {pb.name} not eligible for {queue_a}"
 
     new_assignments = list(result.assignments)

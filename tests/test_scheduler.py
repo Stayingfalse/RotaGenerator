@@ -68,7 +68,7 @@ class SchedulerTests(unittest.TestCase):
         inp.demand = [DemandEntry("mon", 0, "LDM3", 1)]
         result = generate_schedule(inp)
         self.assertEqual(len(result.assignments), 0)
-        self.assertTrue(len(result.conflicts) > 0)
+        self.assertTrue(any("insufficient eligible coverage" in c.reason.lower() for c in result.conflicts))
 
     def test_saturday_fairness_updates(self):
         inp = _base_input()
@@ -83,6 +83,7 @@ class SchedulerTests(unittest.TestCase):
         inp.demand = [DemandEntry("sat", 10, "LDM2", 1)]
         result = generate_schedule(inp)
         self.assertEqual(len(result.assignments), 0)
+        self.assertTrue(any("insufficient eligible coverage" in c.reason.lower() for c in result.conflicts))
 
 
 if __name__ == "__main__":
