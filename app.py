@@ -12,6 +12,7 @@ from flask import Flask, jsonify, render_template, request, send_file
 
 from rotagen import db
 from rotagen.exporter import export_single_worksheet
+from rotagen.matrix_io import export_matrix_xlsx, import_matrix
 from rotagen.models import DAYS, DemandEntry, FairnessHistory, Person, QueueRule, ScheduleConfig, ScheduleInput, SLOTS_PER_DAY, slot_label
 from rotagen.sample_data import sample_input
 from rotagen.scheduler import generate_schedule, validate_and_apply_swap
@@ -252,6 +253,33 @@ def save_config():
     payload = request.get_json(force=True)
     db.save_config(payload)
     return jsonify({"status": "saved"})
+
+
+@app.post("/export-matrix.xlsx")
+def export_matrix_xlsx_route():
+    body = request.get_json(force=True)
+    demand = body.get("demand", [])
+    queues = body.get("queues", [])
+    data = export_matrix_xlsx(demand, queues)
+    return send_file(
+        BytesIO(data),
+        as_attachment=True,
+        download_name=f"requirement-matrix-{datetime.now(timezone.utc):%Y%m%d%H%M%S}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.post("/import-matrix")
+def import_matrix_route():
+    """Parse a CSV or XLSX requirement matrix upload and return demand rows."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    f = request.files["file"]
+    try:
+        demand = import_matrix(f.read(), f.filename or "")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(demand)
 
 
 @app.get("/export.xlsx")

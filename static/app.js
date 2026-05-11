@@ -251,6 +251,7 @@ function App() {
   const [expandedAvail, setExpandedAvail] = useState(null);
   const csvInputRef = useRef(null);
   const configImportRef = useRef(null);
+  const matrixImportRef = useRef(null);
   const saveTimerRef = useRef(null);
   const saveControllerRef = useRef(null);
   const isFirstRender = useRef(true);
@@ -507,6 +508,91 @@ function App() {
       }
     };
     reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const exportMatrixCsv = () => {
+    if (state.jobTitles.length === 0) {
+      setMessage("No queues configured. Add queues before exporting the matrix.");
+      return;
+    }
+    const queues = state.jobTitles.map((j) => j.queue);
+    const header = ["Slot", ...DAYS.flatMap((day) => queues.map((q) => `${day}|${q}`))];
+    const rows = [header];
+    for (let slot = 0; slot < SLOT_COUNT; slot++) {
+      const values = DAYS.flatMap((day) =>
+        queues.map((q) => state.demandMap.get(`${day}|${slot}|${q}`) || 0)
+      );
+      rows.push([slotLabel(slot), ...values]);
+    }
+    const csv = rows
+      .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+      .join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `requirement-matrix-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportMatrixXlsx = async () => {
+    if (state.jobTitles.length === 0) {
+      setMessage("No queues configured. Add queues before exporting the matrix.");
+      return;
+    }
+    const payload = buildPayload(state);
+    const queues = state.jobTitles.map((j) => j.queue);
+    try {
+      const res = await fetch("/export-matrix.xlsx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ demand: payload.demand, queues }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Matrix export failed");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `requirement-matrix-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setMessage(err.message || "Matrix export failed");
+    }
+  };
+
+  const handleMatrixImport = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await fetch("/import-matrix", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Matrix import failed");
+      const knownQueues = new Set(state.jobTitles.map((j) => j.queue));
+      const toImport = data.filter((d) => knownQueues.has(d.queue));
+      const skipped = data.length - toImport.length;
+      setState((prev) => {
+        const demandMap = new Map(prev.demandMap);
+        for (const d of toImport) {
+          demandMap.set(`${d.day}|${d.slot}|${d.queue}`, Math.max(0, Number(d.required) || 0));
+        }
+        return { ...prev, demandMap };
+      });
+      const msg =
+        skipped > 0
+          ? `Matrix imported (${toImport.length} values). ${skipped} values skipped for unknown queues.`
+          : `Matrix imported successfully (${toImport.length} values).`;
+      setMessage(msg);
+    } catch (err) {
+      setMessage(err.message || "Matrix import failed");
+    }
     e.target.value = "";
   };
 
@@ -772,6 +858,12 @@ function App() {
 
       <div className="panel">
         <h3 className="section-title">Requirement Matrix (Day × Slot × Queue)</h3>
+        <div style={{ marginBottom: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <button className="btn" onClick={exportMatrixCsv}>Export CSV</button>
+          <button className="btn" onClick={exportMatrixXlsx}>Export XLSX</button>
+          <button className="btn" onClick={() => matrixImportRef.current && matrixImportRef.current.click()}>Import CSV / XLSX</button>
+          <input ref={matrixImportRef} type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style={{ display: "none" }} onChange={handleMatrixImport} />
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
