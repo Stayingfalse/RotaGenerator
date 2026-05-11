@@ -250,6 +250,7 @@ function App() {
   const [expandedAvail, setExpandedAvail] = useState(null);
   const csvInputRef = useRef(null);
   const saveTimerRef = useRef(null);
+  const saveControllerRef = useRef(null);
   const isFirstRender = useRef(true);
   const [saveStatus, setSaveStatus] = useState(""); // "" | "saving" | "saved" | "error"
 
@@ -261,8 +262,9 @@ function App() {
     }
     setSaveStatus("saving");
     clearTimeout(saveTimerRef.current);
-    const controller = new AbortController();
     saveTimerRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      saveControllerRef.current = controller;
       try {
         const payload = buildPayload(state);
         const res = await fetch("/config", {
@@ -281,7 +283,7 @@ function App() {
     }, 1000);
     return () => {
       clearTimeout(saveTimerRef.current);
-      controller.abort();
+      if (saveControllerRef.current) saveControllerRef.current.abort();
     };
   }, [state]);
 
