@@ -13,6 +13,11 @@ from rotagen.models import DAYS, ScheduleResult, slot_label
 # Pastel background colors for day groups (cycles if more than 6 days)
 _DAY_COLORS = ["D6E4F7", "D6F7E4", "F7F0D6", "F7D6D6", "E4D6F7", "D6F7F3"]
 
+# Maximum column width (characters) in the main rota sheet.
+# Person-ID columns are intentionally narrower than the old comma-joined list
+# columns, so 20 characters is sufficient and keeps the sheet compact.
+_MAX_COL_WIDTH = 20
+
 
 def _person_bg_fg(person_id: str) -> tuple[str, str]:
     """Return a consistent pastel (bg_hex, fg_hex) pair for a person_id.
@@ -21,7 +26,7 @@ def _person_bg_fg(person_id: str) -> tuple[str, str]:
     mid-range so it is always readable.  The foreground (black or white) is
     chosen for maximum WCAG contrast against that background.
     """
-    digest = hashlib.md5(person_id.encode()).hexdigest()
+    digest = hashlib.sha256(person_id.encode()).hexdigest()
     r = (int(digest[0:2], 16) % 128) + 100
     g = (int(digest[2:4], 16) % 128) + 100
     b = (int(digest[4:6], 16) % 128) + 100
@@ -167,7 +172,7 @@ def export_single_worksheet(
     for col_cells in ws.columns:
         max_len = max([len(str(c.value or "")) for c in col_cells], default=0)
         ws.column_dimensions[get_column_letter(col_cells[0].column)].width = min(
-            max_len + 2, 20
+            max_len + 2, _MAX_COL_WIDTH
         )
 
     # ---- Conflicts sheet ----
