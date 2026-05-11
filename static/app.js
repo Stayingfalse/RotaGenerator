@@ -261,6 +261,7 @@ function App() {
     }
     setSaveStatus("saving");
     clearTimeout(saveTimerRef.current);
+    const controller = new AbortController();
     saveTimerRef.current = setTimeout(async () => {
       try {
         const payload = buildPayload(state);
@@ -268,14 +269,20 @@ function App() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
+          signal: controller.signal,
         });
         if (!res.ok) throw new Error("Save failed");
         setSaveStatus("saved");
       } catch (err) {
+        if (err.name === "AbortError") return; // superseded by a newer save — stay in "saving"
         console.error("Auto-save failed:", err);
         setSaveStatus("error");
       }
     }, 1000);
+    return () => {
+      clearTimeout(saveTimerRef.current);
+      controller.abort();
+    };
   }, [state]);
 
   const slotOptions = useMemo(() => Array.from({ length: SLOT_COUNT }, (_, i) => ({ slot: i, label: slotLabel(i) })), []);

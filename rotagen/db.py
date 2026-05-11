@@ -24,18 +24,17 @@ def init_db(seed_payload: dict) -> None:
 
     The seed is only applied once — on first run when no config row exists yet.
     Subsequent starts leave the stored data intact.
+    Uses INSERT OR IGNORE so concurrent/multi-process starts are idempotent.
     """
     with _get_conn() as conn:
         conn.execute(
             "CREATE TABLE IF NOT EXISTS dashboard_config "
             "(id INTEGER PRIMARY KEY, payload TEXT NOT NULL)"
         )
-        row = conn.execute("SELECT COUNT(*) FROM dashboard_config").fetchone()
-        if row[0] == 0:
-            conn.execute(
-                "INSERT INTO dashboard_config (id, payload) VALUES (1, ?)",
-                (json.dumps(seed_payload),),
-            )
+        conn.execute(
+            "INSERT OR IGNORE INTO dashboard_config (id, payload) VALUES (1, ?)",
+            (json.dumps(seed_payload),),
+        )
 
 
 def load_config() -> dict:

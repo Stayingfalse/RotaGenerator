@@ -18,14 +18,13 @@ def export_single_worksheet(result: ScheduleResult) -> bytes:
     ws = wb.active
     ws.title = "Rota"
 
-    # Determine ordered list of queues present in assignments
-    queues: list[str] = []
+    # Determine ordered list of queues present in assignments OR conflicts
     seen: set[str] = set()
-    for a in sorted(result.assignments, key=lambda x: x.queue):
-        if a.queue not in seen:
-            queues.append(a.queue)
-            seen.add(a.queue)
-    queues.sort()
+    for a in result.assignments:
+        seen.add(a.queue)
+    for c in result.conflicts:
+        seen.add(c.queue)
+    queues: list[str] = sorted(seen)
 
     # Build lookup: (day, slot, queue) -> list of person_ids
     grid: dict[tuple[str, int, str], list[str]] = {}
@@ -33,7 +32,9 @@ def export_single_worksheet(result: ScheduleResult) -> bytes:
         key = (a.day, a.slot, a.queue)
         grid.setdefault(key, []).append(a.person_id)
 
-    days_present = [d for d in DAYS if any(a.day == d for a in result.assignments)]
+    # Days present in assignments OR conflicts, preserving DAYS order
+    days_with_data: set[str] = {a.day for a in result.assignments} | {c.day for c in result.conflicts}
+    days_present = [d for d in DAYS if d in days_with_data]
 
     # ---- Header row 1: "Time" then each day spanning len(queues) columns ----
     header1 = ["Time"]
@@ -87,8 +88,8 @@ def export_single_worksheet(result: ScheduleResult) -> bytes:
 
     ws.cell(row=row2_idx, column=time_col).font = Font(bold=True)
 
-    # Determine the set of slots that have any demand
-    all_slots = sorted({a.slot for a in result.assignments})
+    # Determine the set of slots that have any assignment OR conflict
+    all_slots = sorted({a.slot for a in result.assignments} | {c.slot for c in result.conflicts})
 
     # ---- Data rows ----
     for slot in all_slots:
