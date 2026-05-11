@@ -1,5 +1,6 @@
 let current = null;
 let dragPayload = null;
+const ASSIGNMENTS_HEADER = "Assignments (drag to swap queues)";
 
 function byId(id) { return document.getElementById(id); }
 
@@ -37,7 +38,7 @@ function render() {
   if (!current) return;
   const grid = byId('grid');
   const rows = [];
-  rows.push('<table><thead><tr><th>Day</th><th>Slot</th><th>Assignments (drag one badge and drop into same slot on another queue badge)</th></tr></thead><tbody>');
+  rows.push(`<table><thead><tr><th>Day</th><th>Slot</th><th>${ASSIGNMENTS_HEADER}</th></tr></thead><tbody>`);
 
   for (const day of current.days) {
     for (const slotInfo of current.slots) {

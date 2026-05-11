@@ -8,7 +8,7 @@ Single-container, single-worksheet rota generator with Mon-Sat 30-minute demand 
   - Early: 08:00-12:00
   - Mid: 12:00-16:00
   - Late: 16:00-20:00
-- Weekend treated as Saturday.
+- Weekend handling: only Saturday is included in scheduling scope (Sunday is excluded).
 - Demand model: per queue, per 30-minute slot, per day.
 - Queue-role priority and fallback (e.g. TL priority, ASA fallback where configured).
 - Hard constraints:
