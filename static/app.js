@@ -1,4 +1,4 @@
-const { useMemo, useState } = React;
+const { useMemo, useState, useRef } = React;
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat"];
 const START_HOUR = 8;
@@ -37,6 +37,7 @@ function normalizeConfig(raw) {
   const people = (raw.people || []).map((p) => ({
     person_id: String(p.person_id || ""),
     name: String(p.name || ""),
+    account: String(p.account || ""),
     roles: unique(p.roles || []),
     default_availability: p.default_availability || fullAvailability(),
     target_hours: p.target_hours ?? "",
@@ -49,7 +50,7 @@ function normalizeConfig(raw) {
     priority_roles: unique(q.priority_roles || []),
   }));
 
-  const skillPool = unique([
+  const rolePool = unique([
     ...people.flatMap((p) => p.roles || []),
     ...jobTitles.flatMap((q) => [...(q.allowed_roles || []), ...(q.priority_roles || [])]),
   ]).sort();
@@ -70,7 +71,7 @@ function normalizeConfig(raw) {
 
   return {
     people,
-    skills: skillPool,
+    roles: rolePool,
     jobTitles,
     demandMap,
     overrides: raw.overrides || [],
@@ -93,6 +94,7 @@ function buildPayload(state) {
     people: state.people.map((p) => ({
       person_id: String(p.person_id || ""),
       name: String(p.name || ""),
+      account: String(p.account || ""),
       roles: unique(p.roles || []),
       default_availability: p.default_availability || fullAvailability(),
       target_hours: p.target_hours === "" || Number.isNaN(Number(p.target_hours)) ? null : Number(p.target_hours),
@@ -100,7 +102,7 @@ function buildPayload(state) {
     queue_rules: state.jobTitles.map((q) => ({
       queue: q.queue,
       queue_priority: Number(q.queue_priority) || 100,
-      allowed_roles: unique((q.allowed_roles || []).filter((r) => state.skills.includes(r))),
+      allowed_roles: unique((q.allowed_roles || []).filter((r) => state.roles.includes(r))),
       priority_roles: unique((q.priority_roles || []).filter((r) => (q.allowed_roles || []).includes(r))),
     })),
     demand,
@@ -111,15 +113,142 @@ function buildPayload(state) {
   };
 }
 
+// ---- Availability Editor Component ----
+function AvailabilityEditor({ person, overrides, onChange, onOverridesChange }) {
+  const [activeTab, setActiveTab] = useState("default");
+  const [activeDay, setActiveDay] = useState("mon");
+
+  const slots = useMemo(() => Array.from({ length: SLOT_COUNT }, (_, i) => i), []);
+
+  const defaultForDay = (day) => new Set((person.default_availability || {})[day] || []);
+
+  const toggleDefaultSlot = (day, slot) => {
+    const next = new Set(defaultForDay(day));
+    if (next.has(slot)) next.delete(slot); else next.add(slot);
+    onChange({ ...person, default_availability: { ...(person.default_availability || {}), [day]: [...next] } });
+  };
+
+  const setDayAll = (day, value) => {
+    onChange({ ...person, default_availability: { ...(person.default_availability || {}), [day]: value ? slots.slice() : [] } });
+  };
+
+  const personOverrides = overrides.filter((o) => o.person_id === person.person_id);
+  const getOverride = (day) => personOverrides.find((o) => o.day === day);
+
+  const setOverrideSlots = (day, slotSet) => {
+    const next = overrides.filter((o) => !(o.person_id === person.person_id && o.day === day));
+    next.push({ person_id: person.person_id, day, available_slots: [...slotSet] });
+    onOverridesChange(next);
+  };
+
+  const removeOverride = (day) => {
+    onOverridesChange(overrides.filter((o) => !(o.person_id === person.person_id && o.day === day)));
+  };
+
+  const addOverride = (day) => {
+    if (!getOverride(day)) setOverrideSlots(day, new Set(defaultForDay(day)));
+    setActiveDay(day);
+    setActiveTab("override");
+  };
+
+  const toggleOverrideSlot = (day, slot) => {
+    const ov = getOverride(day);
+    const current = new Set(ov ? ov.available_slots : []);
+    if (current.has(slot)) current.delete(slot); else current.add(slot);
+    setOverrideSlots(day, current);
+  };
+
+  const renderSlotGrid = (selectedSet, onToggle, onAll) => (
+    <div>
+      <div style={{ marginBottom: 6, display: "flex", gap: 8, alignItems: "center" }}>
+        <button className="btn" style={{ fontSize: 11 }} onClick={() => onAll(true)}>All</button>
+        <button className="btn" style={{ fontSize: 11 }} onClick={() => onAll(false)}>None</button>
+        <span className="muted">{selectedSet.size}/{SLOT_COUNT} slots</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2 }}>
+        {slots.map((s) => (
+          <label key={s} style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 3, cursor: "pointer" }}>
+            <input type="checkbox" checked={selectedSet.has(s)} onChange={() => onToggle(s)} />
+            {slotLabel(s)}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: "8px 0" }}>
+      <div className="day-tabs" style={{ marginBottom: 8 }}>
+        <button className={`btn ${activeTab === "default" ? "active" : ""}`} onClick={() => setActiveTab("default")}>Default Availability</button>
+        <button className={`btn ${activeTab === "override" ? "active" : ""}`} onClick={() => setActiveTab("override")}>
+          Weekly Overrides {personOverrides.length > 0 ? `(${personOverrides.length})` : ""}
+        </button>
+      </div>
+
+      {activeTab === "default" && (
+        <div>
+          <div className="day-tabs">
+            {["mon", "tue", "wed", "thu", "fri", "sat"].map((day) => (
+              <button key={day} className={`btn ${activeDay === day ? "active" : ""}`} onClick={() => setActiveDay(day)}>
+                {day.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          {renderSlotGrid(defaultForDay(activeDay), (s) => toggleDefaultSlot(activeDay, s), (v) => setDayAll(activeDay, v))}
+        </div>
+      )}
+
+      {activeTab === "override" && (
+        <div>
+          <p className="muted" style={{ margin: "0 0 8px 0" }}>Overrides replace default availability for that day of the current week.</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            {["mon", "tue", "wed", "thu", "fri", "sat"].map((day) => {
+              const hasOverride = !!getOverride(day);
+              return (
+                <span key={day} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                  <button className={`btn ${hasOverride ? "active" : ""}`} onClick={() => addOverride(day)} style={{ fontSize: 11 }}>
+                    {day.toUpperCase()}{hasOverride ? " ✓" : " +"}
+                  </button>
+                  {hasOverride && (
+                    <button className="btn danger" style={{ fontSize: 11 }} onClick={() => removeOverride(day)}>×</button>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+          {personOverrides.length > 0 && (
+            <div>
+              <div className="day-tabs">
+                {personOverrides.map((o) => (
+                  <button key={o.day} className={`btn ${activeDay === o.day ? "active" : ""}`} onClick={() => setActiveDay(o.day)}>
+                    {o.day.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              {getOverride(activeDay) && renderSlotGrid(
+                new Set(getOverride(activeDay).available_slots),
+                (s) => toggleOverrideSlot(activeDay, s),
+                (v) => setOverrideSlots(activeDay, v ? new Set(slots) : new Set()),
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [state, setState] = useState(() => normalizeConfig(window.__INITIAL_CONFIG__ || {}));
-  const [newSkill, setNewSkill] = useState("");
+  const [newRole, setNewRole] = useState("");
   const [newJobTitle, setNewJobTitle] = useState("");
   const [activeDay, setActiveDay] = useState("mon");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [dragPayload, setDragPayload] = useState(null);
+  const [expandedAvail, setExpandedAvail] = useState(null);
+  const csvInputRef = useRef(null);
 
   const slotOptions = useMemo(() => Array.from({ length: SLOT_COUNT }, (_, i) => ({ slot: i, label: slotLabel(i) })), []);
 
@@ -134,13 +263,18 @@ function App() {
       }
       return {
         ...prev,
-        people: [...prev.people, { person_id: personId, name: `User ${n}`, roles: [], target_hours: "", default_availability: fullAvailability() }],
+        people: [...prev.people, { person_id: personId, name: `User ${n}`, account: "", roles: [], target_hours: "", default_availability: fullAvailability() }],
       };
     });
   };
 
   const removeUser = (personId) => {
-    setState((prev) => ({ ...prev, people: prev.people.filter((p) => p.person_id !== personId) }));
+    setState((prev) => ({
+      ...prev,
+      people: prev.people.filter((p) => p.person_id !== personId),
+      overrides: prev.overrides.filter((o) => o.person_id !== personId),
+    }));
+    if (expandedAvail === personId) setExpandedAvail(null);
   };
 
   const updateUser = (personId, updater) => {
@@ -160,28 +294,30 @@ function App() {
     setState((prev) => ({
       ...prev,
       people: prev.people.map((p) => (p.person_id === personId ? { ...p, person_id: nextId } : p)),
+      overrides: prev.overrides.map((o) => o.person_id === personId ? { ...o, person_id: nextId } : o),
     }));
+    if (expandedAvail === personId) setExpandedAvail(nextId);
   };
 
-  const addSkill = () => {
-    const value = newSkill.trim();
+  const addRole = () => {
+    const value = newRole.trim();
     if (!value) return;
     setState((prev) => {
-      if (prev.skills.includes(value)) return prev;
-      return { ...prev, skills: [...prev.skills, value].sort() };
+      if (prev.roles.includes(value)) return prev;
+      return { ...prev, roles: [...prev.roles, value].sort() };
     });
-    setNewSkill("");
+    setNewRole("");
   };
 
-  const removeSkill = (skill) => {
+  const removeRole = (role) => {
     setState((prev) => ({
       ...prev,
-      skills: prev.skills.filter((s) => s !== skill),
-      people: prev.people.map((p) => ({ ...p, roles: (p.roles || []).filter((r) => r !== skill) })),
+      roles: prev.roles.filter((s) => s !== role),
+      people: prev.people.map((p) => ({ ...p, roles: (p.roles || []).filter((r) => r !== role) })),
       jobTitles: prev.jobTitles.map((j) => ({
         ...j,
-        allowed_roles: (j.allowed_roles || []).filter((r) => r !== skill),
-        priority_roles: (j.priority_roles || []).filter((r) => r !== skill),
+        allowed_roles: (j.allowed_roles || []).filter((r) => r !== role),
+        priority_roles: (j.priority_roles || []).filter((r) => r !== role),
       })),
     }));
   };
@@ -249,14 +385,61 @@ function App() {
 
   const validateForGenerate = () => {
     if (state.people.length === 0) return "Add at least one user.";
-    if (state.jobTitles.length === 0) return "Add at least one job title.";
+    if (state.jobTitles.length === 0) return "Add at least one queue.";
     if (state.people.some((p) => !String(p.person_id || "").trim() || !String(p.name || "").trim())) {
       return "Every user must have both an ID and name.";
     }
     if (state.jobTitles.some((j) => !String(j.queue || "").trim())) {
-      return "Every job title must have a name.";
+      return "Every queue must have a name.";
     }
     return "";
+  };
+
+  const handleCsvFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await fetch("/import-csv", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "CSV import failed");
+      setState((prev) => {
+        const existingIds = new Set(prev.people.map((p) => p.person_id));
+        const newPeople = [...prev.people];
+        const newRoles = [...prev.roles];
+        for (const imp of data) {
+          if (existingIds.has(imp.person_id)) {
+            const idx = newPeople.findIndex((p) => p.person_id === imp.person_id);
+            newPeople[idx] = {
+              ...newPeople[idx],
+              name: imp.name || newPeople[idx].name,
+              account: imp.account || newPeople[idx].account,
+              target_hours: imp.target_hours ?? newPeople[idx].target_hours,
+              roles: unique([...(newPeople[idx].roles || []), ...(imp.roles || [])]),
+            };
+          } else {
+            newPeople.push({
+              person_id: imp.person_id,
+              name: imp.name || imp.person_id,
+              account: imp.account || "",
+              roles: imp.roles || [],
+              target_hours: imp.target_hours ?? "",
+              default_availability: imp.default_availability || fullAvailability(),
+            });
+            existingIds.add(imp.person_id);
+          }
+          for (const r of (imp.roles || [])) {
+            if (!newRoles.includes(r)) newRoles.push(r);
+          }
+        }
+        return { ...prev, people: newPeople, roles: newRoles.sort() };
+      });
+      setMessage(`Imported ${data.length} user(s) from CSV.`);
+    } catch (err) {
+      setMessage(err.message || "CSV import failed");
+    }
+    e.target.value = "";
   };
 
   const generate = async () => {
@@ -300,7 +483,7 @@ function App() {
     <>
       <div className="panel">
         <h2 className="section-title">Rota Dashboard</h2>
-        <p className="muted">Manage users, skills, job titles, and requirement matrix from a structured React UI.</p>
+        <p className="muted">Manage users, roles, queues, and the requirement matrix.</p>
         <div className="row">
           <button className="btn primary" onClick={generate} disabled={busy}>{busy ? "Generating..." : "Generate Schedule"}</button>
           <a className="btn" href="/export.xlsx" target="_blank" rel="noreferrer">Export XLSX</a>
@@ -310,95 +493,116 @@ function App() {
 
       <div className="panel">
         <h3 className="section-title">Users</h3>
+        <div style={{ marginBottom: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <button className="btn" onClick={addUser}>Add User</button>
+          <button className="btn" onClick={() => csvInputRef.current && csvInputRef.current.click()}>Import CSV</button>
+          <input ref={csvInputRef} type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={handleCsvFile} />
+          <span className="muted" style={{ fontSize: 11 }}>CSV columns: UserID, UserName, Account, Hours, Role</span>
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>User ID</th>
                 <th>Name</th>
+                <th>Account</th>
                 <th>Target Hours</th>
-                <th>Assigned Skills</th>
+                <th>Assigned Roles</th>
+                <th>Availability</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {state.people.map((p) => (
-                <tr key={p.person_id}>
-                  <td>
-                    <input
-                      value={p.person_id}
-                      onChange={(e) => renameUserId(p.person_id, e.target.value)}
-                    />
-                  </td>
-                  <td><input value={p.name} onChange={(e) => updateUser(p.person_id, (curr) => ({ ...curr, name: e.target.value }))} /></td>
-                  <td>
-                    <input
-                      type="number"
-                      min="0"
-                      value={p.target_hours}
-                      onChange={(e) => updateUser(p.person_id, (curr) => ({ ...curr, target_hours: e.target.value }))}
-                    />
-                  </td>
-                  <td>
-                    {state.skills.length === 0 && <span className="muted">Add skills first</span>}
-                    {state.skills.map((skill) => {
-                      const checked = (p.roles || []).includes(skill);
-                      return (
-                        <label key={`${p.person_id}-${skill}`} className="pill">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(e) => updateUser(p.person_id, (curr) => ({
-                              ...curr,
-                              roles: e.target.checked
-                                ? unique([...(curr.roles || []), skill])
-                                : (curr.roles || []).filter((r) => r !== skill),
-                            }))}
-                          />
-                          {skill}
-                        </label>
-                      );
-                    })}
-                  </td>
-                  <td><button className="btn danger" onClick={() => removeUser(p.person_id)}>Remove</button></td>
-                </tr>
+                <React.Fragment key={p.person_id}>
+                  <tr>
+                    <td><input value={p.person_id} onChange={(e) => renameUserId(p.person_id, e.target.value)} /></td>
+                    <td><input value={p.name} onChange={(e) => updateUser(p.person_id, (curr) => ({ ...curr, name: e.target.value }))} /></td>
+                    <td><input value={p.account || ""} placeholder="e.g. Account_A" onChange={(e) => updateUser(p.person_id, (curr) => ({ ...curr, account: e.target.value }))} /></td>
+                    <td>
+                      <input type="number" min="0" value={p.target_hours} onChange={(e) => updateUser(p.person_id, (curr) => ({ ...curr, target_hours: e.target.value }))} />
+                    </td>
+                    <td>
+                      {state.roles.length === 0 && <span className="muted">Add roles first</span>}
+                      {state.roles.map((role) => {
+                        const checked = (p.roles || []).includes(role);
+                        return (
+                          <label key={`${p.person_id}-${role}`} className="pill">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => updateUser(p.person_id, (curr) => ({
+                                ...curr,
+                                roles: e.target.checked
+                                  ? unique([...(curr.roles || []), role])
+                                  : (curr.roles || []).filter((r) => r !== role),
+                              }))}
+                            />
+                            {role}
+                          </label>
+                        );
+                      })}
+                    </td>
+                    <td>
+                      <button
+                        className={`btn ${expandedAvail === p.person_id ? "active" : ""}`}
+                        onClick={() => setExpandedAvail(expandedAvail === p.person_id ? null : p.person_id)}
+                        style={{ fontSize: 11 }}
+                      >
+                        {expandedAvail === p.person_id ? "Hide" : "Edit"} Availability
+                      </button>
+                    </td>
+                    <td><button className="btn danger" onClick={() => removeUser(p.person_id)}>Remove</button></td>
+                  </tr>
+                  {expandedAvail === p.person_id && (
+                    <tr>
+                      <td colSpan={7} style={{ background: "#f9fafb", padding: "12px 16px" }}>
+                        <AvailabilityEditor
+                          person={p}
+                          overrides={state.overrides}
+                          onChange={(updated) => updateUser(p.person_id, () => updated)}
+                          onOverridesChange={(newOverrides) => setState((prev) => ({ ...prev, overrides: newOverrides }))}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>
         </div>
-        <div style={{ marginTop: 10 }}>
-          <button className="btn" onClick={addUser}>Add User</button>
-        </div>
       </div>
 
       <div className="panel">
-        <h3 className="section-title">Skills</h3>
+        <h3 className="section-title">Roles</h3>
+        <p className="muted" style={{ marginTop: 0 }}>Define the roles people can hold (e.g. TL, ASA, ICH_FW). Each queue below specifies which roles are allowed.</p>
         <div className="row">
-          <input placeholder="Add new skill (e.g. TL)" value={newSkill} onChange={(e) => setNewSkill(e.target.value)} />
-          <button className="btn" onClick={addSkill}>Add Skill</button>
+          <input placeholder="Add new role (e.g. TL)" value={newRole} onChange={(e) => setNewRole(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addRole()} />
+          <button className="btn" onClick={addRole}>Add Role</button>
         </div>
         <div style={{ marginTop: 10 }}>
-          {state.skills.map((skill) => (
-            <span key={skill} className="pill">
-              {skill}
-              <button className="btn danger" onClick={() => removeSkill(skill)}>x</button>
+          {state.roles.map((role) => (
+            <span key={role} className="pill">
+              {role}
+              <button className="btn danger" onClick={() => removeRole(role)}>x</button>
             </span>
           ))}
         </div>
       </div>
 
       <div className="panel">
-        <h3 className="section-title">Job Titles & Skill Priority</h3>
+        <h3 className="section-title">Queues & Role Priority</h3>
+        <p className="muted" style={{ marginTop: 0 }}>Each queue (e.g. LDM1, LDM2, FW) specifies which roles can fill it and their assignment priority order.</p>
         <div className="row" style={{ marginBottom: 10 }}>
-          <input placeholder="Add new job title (e.g. LDM1)" value={newJobTitle} onChange={(e) => setNewJobTitle(e.target.value)} />
-          <button className="btn" onClick={addJobTitle}>Add Job Title</button>
+          <input placeholder="Add new queue (e.g. LDM1)" value={newJobTitle} onChange={(e) => setNewJobTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addJobTitle()} />
+          <button className="btn" onClick={addJobTitle}>Add Queue</button>
         </div>
 
         {state.jobTitles.map((j) => (
           <div className="card" key={j.queue}>
             <div className="row">
               <div>
-                <label className="muted">Job Title</label>
+                <label className="muted">Queue Name</label>
                 <input
                   value={j.queue}
                   onChange={(e) => {
@@ -421,41 +625,36 @@ function App() {
               </div>
               <div>
                 <label className="muted">Priority Rank</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={j.queue_priority}
-                  onChange={(e) => updateJobTitle(j.queue, (curr) => ({ ...curr, queue_priority: Number(e.target.value) || 1 }))}
-                />
+                <input type="number" min="1" value={j.queue_priority} onChange={(e) => updateJobTitle(j.queue, (curr) => ({ ...curr, queue_priority: Number(e.target.value) || 1 }))} />
               </div>
               <div style={{ display: "flex", alignItems: "end" }}>
-                <button className="btn danger" onClick={() => removeJobTitle(j.queue)}>Remove Job Title</button>
+                <button className="btn danger" onClick={() => removeJobTitle(j.queue)}>Remove Queue</button>
               </div>
             </div>
 
             <div style={{ marginTop: 8 }}>
-              <div className="muted">Allowed Skills</div>
-              {state.skills.length === 0 && <div className="muted">No skills available</div>}
-              {state.skills.map((skill) => {
-                const checked = (j.allowed_roles || []).includes(skill);
+              <div className="muted">Allowed Roles</div>
+              {state.roles.length === 0 && <div className="muted">No roles available — add roles above first</div>}
+              {state.roles.map((role) => {
+                const checked = (j.allowed_roles || []).includes(role);
                 return (
-                  <label key={`${j.queue}-${skill}`} className="pill">
+                  <label key={`${j.queue}-${role}`} className="pill">
                     <input
                       type="checkbox"
                       checked={checked}
                       onChange={(e) => {
                         updateJobTitle(j.queue, (curr) => {
                           const allowed = e.target.checked
-                            ? unique([...(curr.allowed_roles || []), skill])
-                            : (curr.allowed_roles || []).filter((r) => r !== skill);
+                            ? unique([...(curr.allowed_roles || []), role])
+                            : (curr.allowed_roles || []).filter((r) => r !== role);
                           const priority = e.target.checked
                             ? unique(curr.priority_roles || [])
-                            : (curr.priority_roles || []).filter((r) => r !== skill);
+                            : (curr.priority_roles || []).filter((r) => r !== role);
                           return { ...curr, allowed_roles: allowed, priority_roles: priority };
                         });
                       }}
                     />
-                    {skill}
+                    {role}
                   </label>
                 );
               })}
@@ -463,23 +662,18 @@ function App() {
 
             <div style={{ marginTop: 8 }}>
               <div className="muted">Priority Order</div>
-              {(j.allowed_roles || []).filter((skill) => !(j.priority_roles || []).includes(skill)).map((skill) => (
-                <span key={`${j.queue}-add-priority-${skill}`} className="pill">
-                  {skill}
-                  <button
-                    className="btn"
-                    onClick={() => updateJobTitle(j.queue, (curr) => ({ ...curr, priority_roles: unique([...(curr.priority_roles || []), skill]) }))}
-                  >
+              {(j.allowed_roles || []).filter((role) => !(j.priority_roles || []).includes(role)).map((role) => (
+                <span key={`${j.queue}-add-priority-${role}`} className="pill">
+                  {role}
+                  <button className="btn" onClick={() => updateJobTitle(j.queue, (curr) => ({ ...curr, priority_roles: unique([...(curr.priority_roles || []), role]) }))}>
                     Add to Priority
                   </button>
                 </span>
               ))}
-              {(j.priority_roles || []).filter((skill) => (j.allowed_roles || []).includes(skill)).map((skill, idx, arr) => (
-                <span key={`${j.queue}-priority-${skill}`} className="pill">
-                  {idx + 1}. {skill}
-                  <button
-                    className="btn"
-                    disabled={idx === 0}
+              {(j.priority_roles || []).filter((role) => (j.allowed_roles || []).includes(role)).map((role, idx, arr) => (
+                <span key={`${j.queue}-priority-${role}`} className="pill">
+                  {idx + 1}. {role}
+                  <button className="btn" disabled={idx === 0}
                     onClick={() => updateJobTitle(j.queue, (curr) => {
                       const list = [...(curr.priority_roles || [])].filter((s) => (curr.allowed_roles || []).includes(s));
                       if (idx === 0) return curr;
@@ -487,9 +681,7 @@ function App() {
                       return { ...curr, priority_roles: list };
                     })}
                   >↑</button>
-                  <button
-                    className="btn"
-                    disabled={idx === arr.length - 1}
+                  <button className="btn" disabled={idx === arr.length - 1}
                     onClick={() => updateJobTitle(j.queue, (curr) => {
                       const list = [...(curr.priority_roles || [])].filter((s) => (curr.allowed_roles || []).includes(s));
                       if (idx >= list.length - 1) return curr;
@@ -505,14 +697,10 @@ function App() {
       </div>
 
       <div className="panel">
-        <h3 className="section-title">Requirement Matrix (Day × Slot × Job Title)</h3>
+        <h3 className="section-title">Requirement Matrix (Day × Slot × Queue)</h3>
         <div className="day-tabs">
           {DAYS.map((day) => (
-            <button
-              key={day}
-              className={`btn ${activeDay === day ? "active" : ""}`}
-              onClick={() => setActiveDay(day)}
-            >
+            <button key={day} className={`btn ${activeDay === day ? "active" : ""}`} onClick={() => setActiveDay(day)}>
               {day.toUpperCase()}
             </button>
           ))}
@@ -533,12 +721,7 @@ function App() {
                     const value = state.demandMap.get(`${activeDay}|${slotInfo.slot}|${j.queue}`) || 0;
                     return (
                       <td key={`${activeDay}-${slotInfo.slot}-${j.queue}`}>
-                        <input
-                          type="number"
-                          min="0"
-                          value={value}
-                          onChange={(e) => updateDemand(activeDay, slotInfo.slot, j.queue, e.target.value)}
-                        />
+                        <input type="number" min="0" value={value} onChange={(e) => updateDemand(activeDay, slotInfo.slot, j.queue, e.target.value)} />
                       </td>
                     );
                   })}
@@ -582,14 +765,8 @@ function App() {
                               setMessage("Swaps are only allowed within the same day and slot.");
                               return;
                             }
-                            if (!targetQueue) {
-                              setMessage("Drop onto a queue badge in the same slot to swap.");
-                              return;
-                            }
-                            if (targetQueue === dragPayload.queue) {
-                              setMessage("Drop onto a different queue badge to swap.");
-                              return;
-                            }
+                            if (!targetQueue) { setMessage("Drop onto a queue badge in the same slot to swap."); return; }
+                            if (targetQueue === dragPayload.queue) { setMessage("Drop onto a different queue badge to swap."); return; }
                             await swap(dragPayload.day, dragPayload.slot, dragPayload.queue, targetQueue);
                           } catch (err) {
                             setMessage(err.message || "Swap failed");
@@ -599,13 +776,7 @@ function App() {
                         }}
                       >
                         {items.map((a) => (
-                          <span
-                            key={`${day}-${slot}-${a.queue}-${a.person_id}`}
-                            className="badge"
-                            data-queue={a.queue}
-                            draggable
-                            onDragStart={() => setDragPayload({ day, slot: Number(slot), queue: a.queue })}
-                          >
+                          <span key={`${day}-${slot}-${a.queue}-${a.person_id}`} className="badge" data-queue={a.queue} draggable onDragStart={() => setDragPayload({ day, slot: Number(slot), queue: a.queue })}>
                             {a.queue}: {a.person_id}
                           </span>
                         ))}

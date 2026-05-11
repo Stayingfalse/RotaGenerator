@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 from collections import defaultdict
 from dataclasses import asdict
@@ -29,6 +31,7 @@ def _parse_payload(payload: dict) -> ScheduleInput:
                 roles=set(p["roles"]),
                 default_availability={k: set(v) for k, v in p["default_availability"].items()},
                 target_hours=p.get("target_hours"),
+                account=p.get("account", ""),
             )
         )
 
@@ -109,6 +112,7 @@ def home():
                 "roles": sorted(list(p.roles)),
                 "default_availability": {k: sorted(list(v)) for k, v in p.default_availability.items()},
                 "target_hours": p.target_hours,
+                "account": p.account,
             }
             for p in sample_input().people
         ],
@@ -157,7 +161,63 @@ def swap():
     return jsonify(_render_schedule(LAST_RESULT))
 
 
-@app.get("/export.xlsx")
+@app.post("/import-csv")
+def import_csv():
+    """Parse a CSV upload with columns: UserID, UserName, Account, Hours, Role.
+    Returns a JSON array of person objects ready to merge into the dashboard state.
+    Multiple rows for the same UserID accumulate roles.
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    f = request.files["file"]
+    text = f.read().decode("utf-8-sig", errors="replace")
+    reader = csv.DictReader(io.StringIO(text))
+
+    # Normalise header names: strip whitespace and lowercase
+    if reader.fieldnames is None:
+        return jsonify({"error": "Empty CSV"}), 400
+
+    expected = {"userid", "username", "account", "hours", "role"}
+    actual = {h.strip().lower() for h in reader.fieldnames}
+    missing = expected - actual
+    if missing:
+        return jsonify({"error": f"Missing CSV columns: {', '.join(sorted(missing))}"}), 400
+
+    people_map: dict[str, dict] = {}
+    all_slots = list(range(24))
+    for row in reader:
+        norm = {k.strip().lower(): (v.strip() if v else "") for k, v in row.items()}
+        pid = norm.get("userid", "").strip()
+        if not pid:
+            continue
+        if pid not in people_map:
+            people_map[pid] = {
+                "person_id": pid,
+                "name": norm.get("username", pid),
+                "account": norm.get("account", ""),
+                "target_hours": None,
+                "roles": [],
+                "default_availability": {d: all_slots for d in ["mon", "tue", "wed", "thu", "fri", "sat"]},
+            }
+        # Update fields from this row (last row wins for non-role fields)
+        if norm.get("username"):
+            people_map[pid]["name"] = norm["username"]
+        if norm.get("account"):
+            people_map[pid]["account"] = norm["account"]
+        hours_raw = norm.get("hours", "")
+        if hours_raw:
+            try:
+                people_map[pid]["target_hours"] = float(hours_raw)
+            except ValueError:
+                pass
+        role = norm.get("role", "").strip()
+        if role and role not in people_map[pid]["roles"]:
+            people_map[pid]["roles"].append(role)
+
+    return jsonify(list(people_map.values()))
+
+
+
 def export_xlsx():
     if LAST_RESULT is None:
         return jsonify({"error": "No schedule to export"}), 400

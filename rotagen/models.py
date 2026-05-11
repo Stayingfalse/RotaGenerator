@@ -25,6 +25,7 @@ class Person:
     roles: set[str]
     default_availability: dict[str, set[int]]
     target_hours: float | None = None
+    account: str = ""
 
 
 @dataclass(slots=True)

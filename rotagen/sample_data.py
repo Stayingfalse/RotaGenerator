@@ -6,11 +6,11 @@ from rotagen.models import DAYS, DemandEntry, Person, QueueRule, ScheduleConfig,
 def sample_input() -> ScheduleInput:
     all_slots = set(range(24))
     people = [
-        Person("tl_1", "TL One", {"TL"}, {d: all_slots for d in DAYS}, 22),
-        Person("tl_2", "TL Two", {"TL"}, {d: all_slots for d in DAYS}, 22),
-        Person("asa_1", "ASA One", {"ASA"}, {d: all_slots for d in DAYS}, 20),
-        Person("asa_2", "ASA Two", {"ASA"}, {d: all_slots for d in DAYS}, 20),
-        Person("fw_1", "FW One", {"FW", "ASA"}, {d: all_slots for d in DAYS}, 18),
+        Person("tl_1", "TL One", {"TL"}, {d: all_slots for d in DAYS}, 22, "Account_A"),
+        Person("tl_2", "TL Two", {"TL"}, {d: all_slots for d in DAYS}, 22, "Account_A"),
+        Person("asa_1", "ASA One", {"ASA"}, {d: all_slots for d in DAYS}, 20, "Account_B"),
+        Person("asa_2", "ASA Two", {"ASA"}, {d: all_slots for d in DAYS}, 20, "Account_B"),
+        Person("fw_1", "FW One", {"FW", "ASA"}, {d: all_slots for d in DAYS}, 18, "Account_C"),
     ]
 
     queue_rules = {
