@@ -2,6 +2,7 @@ const { useMemo, useState, useRef, useEffect } = React;
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat"];
 const DAY_BG_COLORS = ["#dbeafe", "#dcfce7", "#fef9c3", "#fee2e2", "#ede9fe", "#ccfbf1"];
+const MATRIX_INPUT_WIDTH = 44; // px — demand number inputs in the requirement matrix
 const START_HOUR = 8;
 const SLOT_COUNT = 24;
 
@@ -776,15 +777,18 @@ function App() {
             <thead>
               <tr>
                 <th rowSpan={2} style={{ position: "sticky", left: 0, zIndex: 2, background: "#f3f4f6", whiteSpace: "nowrap" }}>Slot</th>
-                {DAYS.map((day, dIdx) => (
-                  <th
-                    key={day}
-                    colSpan={Math.max(state.jobTitles.length, 1)}
-                    style={{ textAlign: "center", background: DAY_BG_COLORS[dIdx % DAY_BG_COLORS.length], fontWeight: "bold" }}
-                  >
-                    {day.toUpperCase()}
-                  </th>
-                ))}
+                {DAYS.map((day, dIdx) => {
+                  const qColSpan = Math.max(state.jobTitles.length, 1);
+                  return (
+                    <th
+                      key={day}
+                      colSpan={qColSpan}
+                      style={{ textAlign: "center", background: DAY_BG_COLORS[dIdx % DAY_BG_COLORS.length], fontWeight: "bold" }}
+                    >
+                      {day.toUpperCase()}
+                    </th>
+                  );
+                })}
               </tr>
               <tr>
                 {DAYS.map((day, dIdx) =>
@@ -809,7 +813,7 @@ function App() {
                       const value = state.demandMap.get(`${day}|${slotInfo.slot}|${j.queue}`) || 0;
                       return (
                         <td key={`${day}-${slotInfo.slot}-${j.queue}`}>
-                          <input type="number" min="0" value={value} style={{ width: 44 }} onChange={(e) => updateDemand(day, slotInfo.slot, j.queue, e.target.value)} />
+                          <input type="number" min="0" value={value} style={{ width: MATRIX_INPUT_WIDTH }} onChange={(e) => updateDemand(day, slotInfo.slot, j.queue, e.target.value)} />
                         </td>
                       );
                     })
