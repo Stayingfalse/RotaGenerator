@@ -581,7 +581,11 @@ function App() {
                               setMessage("Swaps are only allowed within the same day and slot.");
                               return;
                             }
-                            if (!targetQueue || targetQueue === dragPayload.queue) {
+                            if (!targetQueue) {
+                              setMessage("Drop onto a queue badge in the same slot to swap.");
+                              return;
+                            }
+                            if (targetQueue === dragPayload.queue) {
                               setMessage("Drop onto a different queue badge to swap.");
                               return;
                             }
