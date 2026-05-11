@@ -10,6 +10,7 @@ from io import BytesIO
 
 from flask import Flask, jsonify, render_template, request, send_file
 
+from rotagen import db
 from rotagen.exporter import export_single_worksheet
 from rotagen.models import DAYS, DemandEntry, FairnessHistory, Person, QueueRule, ScheduleConfig, ScheduleInput, SLOTS_PER_DAY, slot_label
 from rotagen.sample_data import sample_input
@@ -19,6 +20,43 @@ from rotagen.scheduler import generate_schedule, validate_and_apply_swap
 app = Flask(__name__)
 LAST_INPUT: ScheduleInput | None = None
 LAST_RESULT = None
+
+
+def _build_seed_payload() -> dict:
+    """Build the seed payload from sample_input for first-run DB seeding."""
+    si = sample_input()
+    return {
+        "people": [
+            {
+                "person_id": p.person_id,
+                "name": p.name,
+                "roles": sorted(list(p.roles)),
+                "default_availability": {k: sorted(list(v)) for k, v in p.default_availability.items()},
+                "target_hours": p.target_hours,
+                "account": p.account,
+            }
+            for p in si.people
+        ],
+        "queue_rules": [
+            {
+                "queue": q.queue,
+                "priority_roles": q.priority_roles,
+                "allowed_roles": sorted(list(q.allowed_roles)),
+                "queue_priority": q.queue_priority,
+            }
+            for q in si.queue_rules.values()
+        ],
+        "demand": [asdict(d) for d in si.demand],
+        "overrides": [],
+        "holidays": [],
+        "fairness": [],
+        "config": asdict(si.config),
+    }
+
+
+# Initialise the database (seeds with sample data on first run)
+with app.app_context():
+    db.init_db(_build_seed_payload())
 
 
 def _parse_payload(payload: dict) -> ScheduleInput:
@@ -104,33 +142,7 @@ def _render_schedule(result):
 
 @app.get("/")
 def home():
-    payload = {
-        "people": [
-            {
-                "person_id": p.person_id,
-                "name": p.name,
-                "roles": sorted(list(p.roles)),
-                "default_availability": {k: sorted(list(v)) for k, v in p.default_availability.items()},
-                "target_hours": p.target_hours,
-                "account": p.account,
-            }
-            for p in sample_input().people
-        ],
-        "queue_rules": [
-            {
-                "queue": q.queue,
-                "priority_roles": q.priority_roles,
-                "allowed_roles": sorted(list(q.allowed_roles)),
-                "queue_priority": q.queue_priority,
-            }
-            for q in sample_input().queue_rules.values()
-        ],
-        "demand": [asdict(d) for d in sample_input().demand],
-        "overrides": [],
-        "holidays": [],
-        "fairness": [],
-        "config": asdict(sample_input().config),
-    }
+    payload = db.load_config()
     return render_template("index.html", sample_payload=payload, sample_json=json.dumps(payload, indent=2))
 
 
@@ -217,7 +229,15 @@ def import_csv():
     return jsonify(list(people_map.values()))
 
 
+@app.post("/config")
+def save_config():
+    """Persist the full dashboard configuration to the database."""
+    payload = request.get_json(force=True)
+    db.save_config(payload)
+    return jsonify({"status": "saved"})
 
+
+@app.get("/export.xlsx")
 def export_xlsx():
     if LAST_RESULT is None:
         return jsonify({"error": "No schedule to export"}), 400

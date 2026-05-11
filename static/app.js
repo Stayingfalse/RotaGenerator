@@ -1,4 +1,4 @@
-const { useMemo, useState, useRef } = React;
+const { useMemo, useState, useRef, useEffect } = React;
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat"];
 const START_HOUR = 8;
@@ -249,6 +249,33 @@ function App() {
   const [dragPayload, setDragPayload] = useState(null);
   const [expandedAvail, setExpandedAvail] = useState(null);
   const csvInputRef = useRef(null);
+  const saveTimerRef = useRef(null);
+  const isFirstRender = useRef(true);
+  const [saveStatus, setSaveStatus] = useState(""); // "" | "saving" | "saved" | "error"
+
+  // Auto-save to server 1 second after any state change (skip the initial render)
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    setSaveStatus("saving");
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      try {
+        const payload = buildPayload(state);
+        const res = await fetch("/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("Save failed");
+        setSaveStatus("saved");
+      } catch {
+        setSaveStatus("error");
+      }
+    }, 1000);
+  }, [state]);
 
   const slotOptions = useMemo(() => Array.from({ length: SLOT_COUNT }, (_, i) => ({ slot: i, label: slotLabel(i) })), []);
 
@@ -484,9 +511,12 @@ function App() {
       <div className="panel">
         <h2 className="section-title">Rota Dashboard</h2>
         <p className="muted">Manage users, roles, queues, and the requirement matrix.</p>
-        <div className="row">
+        <div className="row" style={{ alignItems: "center" }}>
           <button className="btn primary" onClick={generate} disabled={busy}>{busy ? "Generating..." : "Generate Schedule"}</button>
           <a className="btn" href="/export.xlsx" target="_blank" rel="noreferrer">Export XLSX</a>
+          {saveStatus === "saving" && <span className="muted" style={{ fontSize: 12 }}>⏳ Saving…</span>}
+          {saveStatus === "saved" && <span style={{ color: "#15803d", fontSize: 12 }}>✓ Saved</span>}
+          {saveStatus === "error" && <span style={{ color: "#b91c1c", fontSize: 12 }}>✗ Save failed</span>}
         </div>
         {message && <div className="error">{message}</div>}
       </div>
