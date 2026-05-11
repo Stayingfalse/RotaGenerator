@@ -5,37 +5,39 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Rota Generator</title>
   <style>
-    body { font-family: sans-serif; margin: 16px; }
-    textarea { width: 100%; height: 260px; font-family: monospace; }
-    .row { display: flex; gap: 12px; }
-    .col { flex: 1; min-width: 0; }
+    body { margin: 0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f8fb; color: #1f2937; }
+    #app { padding: 20px; }
+    .panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .section-title { margin-top: 0; margin-bottom: 12px; font-size: 1.1rem; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .row > * { flex: 1; min-width: 200px; }
+    .btn { border: 1px solid #d1d5db; border-radius: 8px; background: #fff; padding: 8px 12px; cursor: pointer; }
+    .btn.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+    .btn.danger { color: #b91c1c; border-color: #fca5a5; background: #fff5f5; }
+    .btn:disabled { opacity: 0.6; cursor: default; }
+    input, select { width: 100%; box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 8px; padding: 6px 8px; }
     table { border-collapse: collapse; width: 100%; font-size: 12px; }
-    th, td { border: 1px solid #ccc; padding: 4px; vertical-align: top; }
-    .badge { display: inline-block; border: 1px solid #888; border-radius: 4px; padding: 2px 6px; margin: 2px; cursor: move; }
-    .dropzone { min-height: 28px; }
-    .error { color: #b00020; }
+    th, td { border: 1px solid #e5e7eb; padding: 6px; vertical-align: top; }
+    th { background: #f3f4f6; position: sticky; top: 0; z-index: 1; }
+    .table-wrap { overflow: auto; max-height: 520px; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #d1d5db; border-radius: 999px; padding: 2px 8px; margin: 3px; background: #f9fafb; font-size: 12px; }
+    .muted { color: #6b7280; font-size: 12px; }
+    .error { color: #b00020; margin-top: 8px; }
+    .badge { display: inline-block; border: 1px solid #9ca3af; border-radius: 999px; padding: 3px 8px; margin: 3px; cursor: move; background: #fff; }
+    .dropzone { min-height: 30px; }
+    .day-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    .day-tabs .btn.active { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+    .card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; margin-bottom: 10px; background: #fcfcfd; }
   </style>
 </head>
 <body>
-  <h1>Rota Generator (Mon-Sat, 30-min slots)</h1>
-  <p>Single worksheet export, single container app.</p>
-
-  <div class="row">
-    <div class="col">
-      <h3>Configuration JSON</h3>
-      <textarea id="config">{{ sample_json }}</textarea>
-      <button id="generateBtn">Generate</button>
-      <a href="/export.xlsx" target="_blank">Export XLSX</a>
-      <p id="message" class="error"></p>
-    </div>
-  </div>
-
-  <h3>Schedule Grid</h3>
-  <div id="grid"></div>
-
-  <h3>Conflicts</h3>
-  <pre id="conflicts"></pre>
-
-  <script src="/static/app.js"></script>
+  <div id="app"></div>
+  <script>
+    window.__INITIAL_CONFIG__ = {{ sample_payload|tojson }};
+  </script>
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.26.0/babel.min.js"></script>
+  <script type="text/babel" src="/static/app.js"></script>
 </body>
 </html>
