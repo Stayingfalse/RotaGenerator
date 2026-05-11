@@ -40,7 +40,7 @@ PYTHONPATH=. python -m pytest -q
 
 ## Docker
 
-### Quick start (single container, data lost on restart)
+### Quick start (single container, data lost when the container is removed)
 
 ```bash
 docker build -t rota-generator .
