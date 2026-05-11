@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from dataclasses import asdict
 from datetime import datetime, timezone
 from io import BytesIO
 
@@ -84,8 +85,8 @@ def _render_schedule(result):
         by_day_slot[a.day][a.slot].append({"queue": a.queue, "person_id": a.person_id})
 
     return {
-        "assignments": [a.__dict__ for a in result.assignments],
-        "conflicts": [c.__dict__ for c in result.conflicts],
+        "assignments": [asdict(a) for a in result.assignments],
+        "conflicts": [asdict(c) for c in result.conflicts],
         "grid": {
             day: {
                 str(slot): sorted(v, key=lambda x: (x["queue"], x["person_id"]))
@@ -120,11 +121,11 @@ def home():
             }
             for q in sample_input().queue_rules.values()
         ],
-        "demand": [d.__dict__ for d in sample_input().demand[:48]],
+        "demand": [asdict(d) for d in sample_input().demand[:48]],
         "overrides": [],
         "holidays": [],
         "fairness": [],
-        "config": sample_input().config.__dict__,
+        "config": asdict(sample_input().config),
     }
     return render_template("index.html", sample_json=json.dumps(payload, indent=2))
 
